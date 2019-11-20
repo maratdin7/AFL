@@ -3,7 +3,8 @@
   "directory": "/home/dinmuhametov/Projects/AFL",
   "arguments": [
    "cc",
-   "-O3",
+   "-Og",
+   "-gdwarf-4",
    "-funroll-loops",
    "-Wall",
    "-D_FORTIFY_SOURCE=2",
@@ -23,7 +24,8 @@
   "directory": "/home/dinmuhametov/Projects/AFL",
   "arguments": [
    "cc",
-   "-O3",
+   "-Og",
+   "-gdwarf-4",
    "-funroll-loops",
    "-Wall",
    "-D_FORTIFY_SOURCE=2",
@@ -43,7 +45,8 @@
   "directory": "/home/dinmuhametov/Projects/AFL",
   "arguments": [
    "cc",
-   "-O3",
+   "-Og",
+   "-gdwarf-4",
    "-funroll-loops",
    "-Wall",
    "-D_FORTIFY_SOURCE=2",
@@ -63,7 +66,8 @@
   "directory": "/home/dinmuhametov/Projects/AFL",
   "arguments": [
    "cc",
-   "-O3",
+   "-Og",
+   "-gdwarf-4",
    "-funroll-loops",
    "-Wall",
    "-D_FORTIFY_SOURCE=2",
@@ -83,7 +87,8 @@
   "directory": "/home/dinmuhametov/Projects/AFL",
   "arguments": [
    "cc",
-   "-O3",
+   "-Og",
+   "-gdwarf-4",
    "-funroll-loops",
    "-Wall",
    "-D_FORTIFY_SOURCE=2",
@@ -103,7 +108,8 @@
   "directory": "/home/dinmuhametov/Projects/AFL",
   "arguments": [
    "cc",
-   "-O3",
+   "-Og",
+   "-gdwarf-4",
    "-funroll-loops",
    "-Wall",
    "-D_FORTIFY_SOURCE=2",
@@ -123,7 +129,8 @@
   "directory": "/home/dinmuhametov/Projects/AFL",
   "arguments": [
    "cc",
-   "-O3",
+   "-Og",
+   "-gdwarf-4",
    "-funroll-loops",
    "-Wall",
    "-D_FORTIFY_SOURCE=2",
@@ -143,7 +150,8 @@
   "directory": "/home/dinmuhametov/Projects/AFL",
   "arguments": [
    "./afl-gcc",
-   "-O3",
+   "-Og",
+   "-gdwarf-4",
    "-funroll-loops",
    "-Wall",
    "-D_FORTIFY_SOURCE=2",
