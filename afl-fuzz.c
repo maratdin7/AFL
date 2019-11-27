@@ -66,6 +66,7 @@
 #include <sys/ioctl.h>
 #include <sys/file.h>
 #include <ecpglib.h>
+#include <gmpxx.h>
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined (__OpenBSD__)
 #  include <sys/sysctl.h>
@@ -95,7 +96,7 @@ EXP_ST u8 *in_dir,                    /* Input directory with test cases  */
         *out_file,                  /* File to fuzz, if any             */
         *out_dir,                   /* Working & output directory       */
         *file_with_paths,            /* File with paths */
-        *out_file_second = "",           /* Second file to fuzz                        */
+        *out_file_second,           /* Second file to fuzz                        */
         *out_file_second_test_buf = "",  /* данные записаные во время первого теста, когда найден out_file_second */
         *sync_dir,                  /* Synchronization directory        */
         *sync_id,                   /* Fuzzer ID                        */
@@ -105,6 +106,9 @@ EXP_ST u8 *in_dir,                    /* Input directory with test cases  */
         *target_path,               /* Path to target binary            */
         *orig_cmdline;              /* Original command line            */
 
+EXP_ST u8 *name_second_file[10];
+
+EXP_ST u32 len_second_file = 0; //len name second file
 EXP_ST u32 exec_tmout = EXEC_TIMEOUT; /* Configurable exec timeout (ms)   */
 static u32 hang_tmout = EXEC_TIMEOUT; /* Timeout used for hang det (ms)   */
 
@@ -1994,6 +1998,49 @@ static void destroy_extras(void) {
 
 }
 
+static void add_sec_file_to_queue(void* mem) {
+    if (out_file_second) {
+
+        fname_sec = out_file_second;
+        q->has_new_file++;
+
+        free(out_file_second);
+        ACTF("обнуленный - %s и fname_second - %s", out_file_second, q->fname_sec);
+    }
+}
+
+static void save_outfile_name(void) {
+    if (file_with_paths && opensnoop_pid) {
+        int cur_len = len_second_file;
+        int len_list_files = (int) lseek(paths_fd, 0, SEEK_END) - cur_len;
+        lseek(paths_fd, cur_len, SEEK_SET);
+        if (len_list_files) {
+
+            len_second_file = len_list_files;
+            out_file_second = malloc(sizeof(char) * len_second_file);
+            //int out_read = (paths_fd, out_file_second, len_second_file);
+            ck_read(paths_fd, out_file_second, len_second_file, file_with_paths);
+            int new = 0;
+            if (!out_file_second) FATAL("Outfile weren't written - %s in gap", out_file_second);
+
+            for (int i = 0; i<10; i++) {
+                if (!strcmp(name_second_file[i], out_file_second)) {
+                    new = 0;
+                    break;
+                }
+                new++;
+            }
+            if (new) free(out_file_second);
+
+            len_second_file += cur_len;
+
+            /* if (out_read == -1) FATAL("не могу прочитать из %s", file_with_paths);
+            if (out_read == 0) FATAL("Достигнут конец файла - %s, длинной - %d", file_with_paths, len_second_file);*/
+
+            //if (out_file_second) ACTF("Outfile writen - %s in gap", out_file_second);
+        }
+    }
+}
 
 /* Spin up fork server (instrumented mode only). The idea is explained here:
 
@@ -2301,9 +2348,6 @@ setrlimit(RLIMIT_DATA, &r); /* Ignore errors */
     FATAL("Fork server handshake failed");
 }
 
-
-static bool get_second_file();
-
 /* Execute target application, monitoring for timeouts. Return status
    information. The called program will update trace_bits[]. */
 
@@ -2312,7 +2356,6 @@ static u8 run_target(char **argv, u32 timeout) {
     static struct itimerval it;
     static u32 prev_timed_out = 0;
     static u64 exec_ms = 0;
-    s32 opensnoop;
     int status = 0;
     u32 tb4;
 
@@ -2437,6 +2480,7 @@ static u8 run_target(char **argv, u32 timeout) {
 
     setitimer(ITIMER_REAL, &it, NULL);
 
+    save_outfile_name();
     /* The SIGALRM handler simply kills the child_pid and sets child_timed_out. */
 
     if (dumb_mode == 1 || no_forkserver) {
@@ -2517,7 +2561,6 @@ static u8 run_target(char **argv, u32 timeout) {
     return FAULT_NONE;
 }
 
-
 /* Write modified data to file for testing. If out_file is set, the old file
    is unlinked and a new one is created. Otherwise, out_fd is rewound and
    truncated. */
@@ -2525,7 +2568,10 @@ static u8 run_target(char **argv, u32 timeout) {
 static void write_to_testcase(void *mem, u32 len) {
 
     s32 fd = out_fd;
-
+    /* if (!out_file_second_test_buf) {
+         //out_file_second_test_buf =(u8 *) malloc(sizeof(char) * (len));
+         alloc_printf(mem, out_file_second_test_buf);
+     }*/
     if (out_file) {
 
         unlink(out_file); /* Ignore errors. */
@@ -2538,12 +2584,6 @@ static void write_to_testcase(void *mem, u32 len) {
 
     ck_write(fd, mem, len, out_file);
 
-
-    if (!out_file_second_test_buf) {
-        //out_file_second_test_buf =(u8 *) malloc(sizeof(char) * (len));
-        alloc_printf(mem, out_file_second_test_buf);
-    }
-
     if (!out_file) {
 
         if (ftruncate(fd, len)) PFATAL("ftruncate() failed");
@@ -2552,7 +2592,6 @@ static void write_to_testcase(void *mem, u32 len) {
     } else close(fd);
 
 }
-
 
 /* The same, but with an adjustable gap. Used for trimming. */
 
@@ -2584,27 +2623,7 @@ static void write_with_gap(void *mem, u32 len, u32 skip_at, u32 skip_len) {
 
 }
 
-
 static void show_stats(void);
-
-static bool get_second_file() {
-/*    u8 *mem, *fname;
-    s32 fd;
-    fname = alloc_printf("%s/name_second_file", out_dir);
-    fd = open(fname, O_RDWR);
-    if (fd > 0) {
-        long len = lseek(fd, 0, SEEK_END);
-        lseek(fd, 0, SEEK_SET);
-        mem = (u8 *) malloc(sizeof(char) * (len));
-        out_file_second =
-                alloc_printf(mem, out_file_second);
-        free(mem);
-        close(fd);
-        return 1;
-    } else return 0;*/
-    out_file_second = "/home/dinmuhametov/CLionProjects/untitled/test1/test";
-    return 1;
-}
 
 /* Calibrate a new test case. This is done when processing the input directory
    to warn about flaky or otherwise problematic test cases early on; and when
@@ -2639,7 +2658,6 @@ static u8 calibrate_case(char **argv, struct queue_entry *q, u8 *use_mem,
 
     /* Make sure the forkserver is up before we do anything, and let's not
      count its spin-up time toward binary calibration. */
-    write(1, use_mem, sizeof(use_mem));
 
     if (dumb_mode != 1 && !no_forkserver && !forksrv_pid)
         init_forkserver(argv);
@@ -2657,10 +2675,7 @@ static u8 calibrate_case(char **argv, struct queue_entry *q, u8 *use_mem,
         write_to_testcase(use_mem, q->len);
         fault = run_target(argv, use_tmout);
 
-        if (get_second_file() && q->has_new_file == 0) {
-            q->fname_sec = out_file_second;
-            q->has_new_file++;
-        }
+        add_sec_file_to_queue(q);
 
         /*     stop_soon is set by the handler for Ctrl+C. When it's pressed,
            we want to bail out quickly. */
@@ -3305,6 +3320,8 @@ static u8 save_if_interesting(char **argv, void *mem, u32 len, u8 fault) {
                 u8 new_fault;
                 write_to_testcase(mem, len);
                 new_fault = run_target(argv, hang_tmout);
+
+                add_sec_file_to_queue(queue_top);
 
                 /* A corner case that one user reported bumping into: increasing the
            timeout actually uncovers a crash. Make sure we don't discard it if
@@ -4950,6 +4967,9 @@ static u8 trim_case(char **argv, struct queue_entry *q, u8 *in_buf) {
             write_with_gap(in_buf, q->len, remove_pos, trim_avail);
 
             fault = run_target(argv, exec_tmout);
+
+            add_sec_file_to_queue(q);
+
             trim_execs++;
 
             if (stop_soon || fault == FAULT_ERROR) goto abort_trimming;
@@ -7247,6 +7267,7 @@ static void handle_stop_sig(int sig) {
 
     if (child_pid > 0) kill(child_pid, SIGKILL);
     if (forksrv_pid > 0) kill(forksrv_pid, SIGKILL);
+    if (opensnoop_pid > 0) kill(opensnoop_pid, SIGKILL);
 
 }
 
@@ -8519,62 +8540,33 @@ int main(int argc, char **argv) {
         unsigned long size = strlen(target_path);
         char *name = malloc(sizeof(char) * size);
         char *arg[5];
-        char *str = strchr(target_path, '/');
-        while (str != NULL) {
-            name = str + 1;
-            str = strchr(name, '/');
-        }
+        char *str = strrchr(target_path, '/');
+        name = str + 1;
 
         if (argv[0] != NULL) {
-           /* size = strlen(argv[0]) - 8 ;
-            u8 *afl_dir = malloc( size);
-            //afl_dir =
-                    snprintf(afl_dir,  size, "%s", argv[0]);
-            int t = opendir(afl_dir-1);
-            if (t< 0) PFATAL("dir does not work errno = %d", errno);
-            else ACTF("afl_dir = %s", afl_dir);
+            size = strlen(argv[0]) + 12 * sizeof(char);
+            u8 *afl_dir = strdup(argv[0]);
+            u8 *p = strrchr(afl_dir, '/');
+            int a = p - afl_dir + 1;
+            u8 *opensnoop_dir = malloc(size);
 
-            char* opensnoop_dir = malloc(size+11);
-            t =snprintf(opensnoop_dir,  size+11, "%s/opensnoop/", afl_dir);
-
-            t = opendir(opensnoop_dir-1);
-            if (t< 0) PFATAL("dir opensnoop does not work errno = %d", errno);
-            else ACTF("opensnoop dir = %s", opensnoop_dir);
-            u8 *tmp = alloc_printf("%s/sctipt.sh", opensnoop_dir-1);
-*/
-            int sizez = strlen(argv[0])+12*sizeof(char);
-            u8 *afl_dir = afl_dir = strdup( argv[0]);
-            u8* p = strrchr(afl_dir, '/');
-            int a = p - afl_dir+1;
-            u8* opensnoop_dir = malloc(sizez);
-            size = strlen(afl_dir ) ;
-
-            for (int i =0; i<a;i++) {
+            for (int i = 0; i < a; i++)
                 opensnoop_dir[i] = afl_dir[i];
-            }
+
             opensnoop_dir = alloc_printf("%s/opensnoop/", opensnoop_dir);
-            ACTF("opensnoop dir = %s", opensnoop_dir);
             arg[0] = "";
             arg[1] = opensnoop_dir;
             arg[2] = name;
             arg[3] = file_with_paths;
             arg[4] = NULL;
             opensnoop_dir = alloc_printf("%s/script.sh", opensnoop_dir);
-            ACTF("Opensnoop will start in the directory - %s", opensnoop_dir);
-        /*    free(opensnoop_dir);
-            free(name);
-            free(afl_dir);*/
-            paths_fd = open(file_with_paths,O_RDWR);
-            if (dup2(paths_fd, STDOUT_FILENO)<0) PFATAL("dup2 does not work errno = %d", errno);
-            else ACTF("dup2 good - %s", opensnoop_dir);
-
+            ACTF("Opensnoop will start in the directory - %s \nWith name '%s'", opensnoop_dir, name);
+            dup2(paths_fd, 1);
             execv(opensnoop_dir, arg);
         }
 
-        if (errno != 0) PFATAL("Opensnoop does not work errno = %d", errno);
         PFATAL("Opensnoop failed");
         exit(0);
-
     }
 
     cull_queue();
