@@ -106,7 +106,8 @@ EXP_ST u8 *in_dir,                    /* Input directory with test cases  */
         *target_path,               /* Path to target binary            */
         *orig_cmdline;              /* Original command line            */
 
-EXP_ST u8 *name_second_file[10];
+EXP_ST u8* name_second_file[10];
+EXP_ST u32 size_name_second_file=0;
 
 EXP_ST u32 len_second_file = 0; //len name second file
 EXP_ST u32 exec_tmout = EXEC_TIMEOUT; /* Configurable exec timeout (ms)   */
@@ -172,6 +173,7 @@ EXP_ST u32 queued_paths,              /* Total number of queued testcases */
         queued_variable,           /* Testcases with variable behavior */
         queued_at_start,           /* Total number of initial inputs   */
         queued_discovered,         /* Items discovered during this run */
+        queued_discovered_second, //моё             ш
         queued_imported,           /* Items imported via -S            */
         queued_favored,            /* Paths deemed favorable           */
         queued_with_cov,           /* Paths with new coverage bytes    */
@@ -279,6 +281,11 @@ static struct queue_entry *queue,     /* Fuzzing queue (linked list)      */
         *queue_cur, /* Current offset within the queue  */
         *queue_top, /* Top of the list                  */
         *q_prev100; /* Previous 100 marker              */
+
+static struct queue_entry *queue_second,     /* Fuzzing queue (linked list)      */
+        *queue_cur_second, /* Current offset within the queue  */
+        *queue_top_second, /* Top of the list                  */
+        *q_prev100_second; /* Previous 100 marker              */
 
 static struct queue_entry *
         top_rated[MAP_SIZE];                /* Top entries for bitmap bytes     */
@@ -793,6 +800,41 @@ static void mark_as_redundant(struct queue_entry *q, u8 state) {
     }
 
     ck_free(fn);
+
+}
+
+static void add_to_queue_second(u8 *fname, u8 *fname_second, u32 len, u32 len_second, u8 passed_det) {// придумай нормальный add_to_queue_second допиши нормальное определение save_second_file
+
+    struct queue_entry *q = ck_alloc(sizeof(struct queue_entry));
+
+    q->fname = fname;
+    q->fname_sec = fname_second;
+    q->len = len;
+    q->depth = cur_depth + 1;
+    q->passed_det = passed_det;
+
+    if (q->depth > max_depth) max_depth = q->depth;
+
+    if (queue_top_second) {
+
+        queue_top_second->next = q;
+        queue_top = q;
+
+    } else q_prev100_second = queue_second = queue_top_second = q;
+
+    queued_paths++;
+    pending_not_fuzzed++;
+
+    cycles_wo_finds = 0;
+
+    if (!(queued_paths % 100)) {
+
+        q_prev100_second->next_100 = q;
+        q_prev100_second = q;
+
+    }
+
+    last_path_time = get_cur_time();
 
 }
 
@@ -1997,16 +2039,50 @@ static void destroy_extras(void) {
     ck_free(a_extras);
 
 }
+static u8 save_second_file(void* mem, u32 len, int index) {
+    u8* fn_dir = alloc_printf("%s/queue_second/%d/", out_dir, index);
+    if (mkdir(fn_dir, 0700)) PFATAL("Unable to create '%s'", fn_dir);
 
-static void add_sec_file_to_queue(void* mem) {
-    if (out_file_second) {
+    u8* fn = alloc_printf("%s/mem", fn_dir);
+    int tmp_fd = open(out_file_second, O_RDONLY);
+    if (tmp_fd<0) FATAL("File '%s' not found", out_file_second);
+    int len_second = lseek(tmp_fd, 0, SEEK_END);
+    lseek(tmp_fd,0,SEEK_SET);
+    close(tmp_fd);
+    add_to_queue_second(fn,out_file_second, len, len_second, 0);
 
-        fname_sec = out_file_second;
-        q->has_new_file++;
+    // переложи mem в fn_dir и рядом положи mem_file
 
-        free(out_file_second);
-        ACTF("обнуленный - %s и fname_second - %s", out_file_second, q->fname_sec);
+    ck_free(fn_dir);
+
+}
+
+static void add_second_file_to_queue(void* mem, u32 len) {
+    int new = 0;
+    if (!out_file_second) FATAL("Outfile weren't written - %s in gap", out_file_second);
+    int size = size_name_second_file;
+
+    if (size<10) {
+        ACTF("Size name_second_file - %d", size);
+        for (int i = 0; i < size; i++) {
+            if (!strcmp(name_second_file[i], out_file_second)) {
+                new = 0;
+                break;
+            }
+            new++;
+        }
+
+        if (new) {
+            alloc_printf(name_second_file[new], out_file_second );
+            size_name_second_file++;
+            queued_discovered_second += save_second_file(mem, len, new);
+        }
     }
+    else SAYF("Найдено больше 10 файлов");
+    free(out_file_second);
+
+
+    save_if_interesting()
 }
 
 static void save_outfile_name(void) {
@@ -2020,17 +2096,6 @@ static void save_outfile_name(void) {
             out_file_second = malloc(sizeof(char) * len_second_file);
             //int out_read = (paths_fd, out_file_second, len_second_file);
             ck_read(paths_fd, out_file_second, len_second_file, file_with_paths);
-            int new = 0;
-            if (!out_file_second) FATAL("Outfile weren't written - %s in gap", out_file_second);
-
-            for (int i = 0; i<10; i++) {
-                if (!strcmp(name_second_file[i], out_file_second)) {
-                    new = 0;
-                    break;
-                }
-                new++;
-            }
-            if (new) free(out_file_second);
 
             len_second_file += cur_len;
 
@@ -2675,8 +2740,6 @@ static u8 calibrate_case(char **argv, struct queue_entry *q, u8 *use_mem,
         write_to_testcase(use_mem, q->len);
         fault = run_target(argv, use_tmout);
 
-        add_sec_file_to_queue(q);
-
         /*     stop_soon is set by the handler for Ctrl+C. When it's pressed,
            we want to bail out quickly. */
 
@@ -3320,8 +3383,6 @@ static u8 save_if_interesting(char **argv, void *mem, u32 len, u8 fault) {
                 u8 new_fault;
                 write_to_testcase(mem, len);
                 new_fault = run_target(argv, hang_tmout);
-
-                add_sec_file_to_queue(queue_top);
 
                 /* A corner case that one user reported bumping into: increasing the
            timeout actually uncovers a crash. Make sure we don't discard it if
@@ -4967,8 +5028,6 @@ static u8 trim_case(char **argv, struct queue_entry *q, u8 *in_buf) {
             write_with_gap(in_buf, q->len, remove_pos, trim_avail);
 
             fault = run_target(argv, exec_tmout);
-
-            add_sec_file_to_queue(q);
 
             trim_execs++;
 
@@ -7659,6 +7718,10 @@ EXP_ST void setup_dirs_fds(void) {
     /* The set of paths showing variable behavior. */
 
     tmp = alloc_printf("%s/queue/.state/variable_behavior/", out_dir);
+    if (mkdir(tmp, 0700)) PFATAL("Unable to create '%s'", tmp);
+    ck_free(tmp);
+
+    tmp = alloc_printf("%s/queue_second/", out_dir);
     if (mkdir(tmp, 0700)) PFATAL("Unable to create '%s'", tmp);
     ck_free(tmp);
 
