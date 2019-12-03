@@ -337,6 +337,9 @@
 #define  CTEST_CORE_TRG_MS  1000
 #define  CTEST_BUSY_CYCLES  (10 * 1000 * 1000)
 
+#define  NUM_OF_ADDITIONAL_FILES 1 /*number of additional files*/
+#define  QUEUE_ARR_SIZE (NUM_OF_ADDITIONAL_FILES+1)
+
 /* Uncomment this to use inferior block-coverage-based instrumentation. Note
    that you need to recompile the target binary for this to have any effect: */
 
@@ -353,5 +356,7 @@
    measuring coverage that could be attained by a "dumb" fuzzing algorithm: */
 
 // #define IGNORE_FINDS
+
+
 
 #endif /* ! _HAVE_CONFIG_H */

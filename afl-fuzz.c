@@ -95,8 +95,7 @@ EXP_ST u8 *in_dir,                    /* Input directory with test cases  */
         *out_file,                  /* File to fuzz, if any             */
         *out_dir,                   /* Working & output directory       */
         *paths,                     /* File with paths */
-        *out_file_second,           /* Second file to fuzz                        */
-        *out_file_second_test_buf = "",  /* данные записаные во время первого теста, когда найден out_file_second */
+        *out_file_sec,               /* Second file to fuzz              */
         *sync_dir,                  /* Synchronization directory        */
         *sync_id,                   /* Fuzzer ID                        */
         *use_banner,                /* Display banner                   */
@@ -105,10 +104,13 @@ EXP_ST u8 *in_dir,                    /* Input directory with test cases  */
         *target_path,               /* Path to target binary            */
         *orig_cmdline;              /* Original command line            */
 
-EXP_ST u8* name_second_file[10];
-EXP_ST u32 size_name_second_file=0;
+EXP_ST u8 *out_files_names[10];
+EXP_ST u32 out_files_names_size = 0;
 
-EXP_ST u32 len_second_file = 0; //len name second file
+EXP_ST s32 paths_len = 0;
+static s32 cur_index = 0;
+
+
 EXP_ST u32 exec_tmout = EXEC_TIMEOUT; /* Configurable exec timeout (ms)   */
 static u32 hang_tmout = EXEC_TIMEOUT; /* Timeout used for hang det (ms)   */
 
@@ -169,6 +171,7 @@ static volatile u8 stop_soon,         /* Ctrl-C pressed?                  */
         child_timed_out;   /* Traced process timed out?        */
 
 EXP_ST u32 queued_paths,              /* Total number of queued testcases */
+        queued_paths_sec,
         queued_variable,           /* Testcases with variable behavior */
         queued_at_start,           /* Total number of initial inputs   */
         queued_discovered,         /* Items discovered during this run */
@@ -276,15 +279,15 @@ struct queue_entry {
 
 };
 
-static struct queue_entry *queue,     /* Fuzzing queue (linked list)      */
-        *queue_cur, /* Current offset within the queue  */
-        *queue_top, /* Top of the list                  */
-        *q_prev100; /* Previous 100 marker              */
+static struct queue_entry *queue_arr[QUEUE_ARR_SIZE],     /* Fuzzing queue (linked list)      */
+        *queue_cur_arr[QUEUE_ARR_SIZE],             /* Current offset within the queue  */
+        *queue_top_arr[QUEUE_ARR_SIZE],                 /* Top of the list                  */
+        *q_prev100_arr[QUEUE_ARR_SIZE];             /* Previous 100 marker              */
 
-static struct queue_entry *queue_second,     /* Fuzzing queue (linked list)      */
-        *queue_cur_second, /* Current offset within the queue  */
-        *queue_top_second, /* Top of the list                  */
-        *q_prev100_second; /* Previous 100 marker              */
+static struct queue_entry *queue,
+        *queue_cur,
+        *queue_top,
+        *q_prev100;
 
 static struct queue_entry *
         top_rated[MAP_SIZE];                /* Top entries for bitmap bytes     */
@@ -802,43 +805,6 @@ static void mark_as_redundant(struct queue_entry *q, u8 state) {
 
 }
 
-static void add_to_queue_second(u8 *fname, u8 *fname_mem, u32 len, u32 len_mem, u8 passed_det) {// придумай нормальный add_to_queue_second допиши нормальное определение save_second_file
-
-    struct queue_entry *q = ck_alloc(sizeof(struct queue_entry));
-
-    q->fname = fname;
-    q->fname_sec = fname_mem;
-    q->len = len;
-    q->len_sec = len_mem;
-    q->depth = cur_depth + 1;
-    q->passed_det = passed_det;
-
-    if (q->depth > max_depth) max_depth = q->depth;
-
-    if (queue_top_second) {
-
-        queue_top_second->next = q;
-        queue_top = q;
-
-    } else q_prev100_second = queue_second = queue_top_second = q;
-
-    queued_paths++;
-    pending_not_fuzzed++;
-
-    cycles_wo_finds = 0;
-
-    if (!(queued_paths % 100)) {
-
-        q_prev100_second->next_100 = q;
-        q_prev100_second = q;
-
-    }
-
-    last_path_time = get_cur_time();
-
-}
-
-
 /* Append new test case to the queue. */
 
 static void add_to_queue(u8 *fname, u32 len, u8 passed_det) {
@@ -852,12 +818,12 @@ static void add_to_queue(u8 *fname, u32 len, u8 passed_det) {
 
     if (q->depth > max_depth) max_depth = q->depth;
 
-    if (queue_top) {
+    if (queue_top_arr[cur_index]) {
 
-        queue_top->next = q;
-        queue_top = q;
+        queue_top_arr[cur_index]->next = q;
+        queue_top_arr[cur_index] = q;
 
-    } else q_prev100 = queue = queue_top = q;
+    } else q_prev100_arr[cur_index] = queue_arr[cur_index] = queue_top_arr[cur_index] = q;
 
     queued_paths++;
     pending_not_fuzzed++;
@@ -866,8 +832,8 @@ static void add_to_queue(u8 *fname, u32 len, u8 passed_det) {
 
     if (!(queued_paths % 100)) {
 
-        q_prev100->next_100 = q;
-        q_prev100 = q;
+        q_prev100_arr[cur_index]->next_100 = q;
+        q_prev100_arr[cur_index] = q;
 
     }
 
@@ -2040,65 +2006,85 @@ static void destroy_extras(void) {
 
 }
 
-static u8 save_second_file(void* mem, u32 len, int index) {
-    u8* fn_dir = alloc_printf("%s/queue_second/%d/", out_dir, index);
-    if (mkdir(fn_dir, 0700)) PFATAL("Unable to create '%s'", fn_dir);
+static u8 save_sec_file_if_interesting(void *mem, u32 len, int index) {
+    u8 *fn = "";
 
-    u8* fn = alloc_printf("%s/mem", fn_dir);
-    int tmp_fd = open(out_file_second, O_WRONLY | O_CREAT | O_EXCL, 0600);
+    s32 tmp_fd = open(out_file_sec, O_WRONLY, 0600);
+    if (tmp_fd < 0) PFATAL("File '%s' not open", out_file_sec);
 
-    if (tmp_fd<0) FATAL("File '%s' not found", out_file_second);
-    int len_second = lseek(tmp_fd, 0, SEEK_END);
-    lseek(tmp_fd,0,SEEK_SET);
+    u32 file_sec_len = lseek(tmp_fd, 0, SEEK_END);
+    lseek(tmp_fd, 0, SEEK_SET);
+
+    fn = alloc_printf("%s/queue_second/%d/id_%06u", out_dir, index, queued_paths);
+
+    s32 fd = open(fn, O_CREAT | O_RDWR, 0600);
+    if (fd < 0) PFATAL("Unable to create '%s'", fn);
+
+    u8 *tmp_buf = NULL;
+    ck_read(tmp_fd, tmp_buf, file_sec_len, out_file_sec);
+    ck_write(fd, tmp_buf, file_sec_len, fn);
     close(tmp_fd);
-    add_to_queue_second(out_file_second,fn, len_second, len, 0);
+    close(fd);
 
+    add_to_queue_sec(out_file_sec, fn, file_sec_len, len, 0);
 
     // переложи mem в fn_dir и рядом положи mem_file
 
-    ck_free(fn_dir);
-
 }
 
-static void add_second_file_to_queue(void* mem, u32 len) {
-    int new = 0;
-    if (!out_file_second) FATAL("Outfile weren't written - %s in gap", out_file_second);
-    int size = size_name_second_file;
+static void save_sec_file(void *mem, u32 len) {
+    s32 new = 0;
+    if (!out_file_sec) FATAL("Outfile weren't written - %s", out_file_sec);
+    u32 size = out_files_names_size;
 
-    if (size<10) {
-        ACTF("Size name_second_file - %d", size);
-        for (int i = 0; i < size; i++) {
-            if (!strcmp(name_second_file[i], out_file_second)) {
-                new = 0;
+    if (size < 10) {
+        ACTF("Size out_files_names - %d", size);
+        for (u32 i = 0; i < size; i++) {
+            if (!strcmp(out_files_names[i], out_file_sec)) {
+                new = -1;
                 break;
             }
             new++;
         }
 
-        if (new) {
-            alloc_printf(name_second_file[new], out_file_second );
-            size_name_second_file++;
-            queued_discovered_second += save_second_file(mem, len, new);
+        if (new == -1) {
+            alloc_printf(out_files_names[new], out_file_sec);
+            out_files_names_size++;
+
+            u8 *fn_dir = alloc_printf("%s/queue_second/%d/", out_dir, new);
+            if (mkdir(fn_dir, 0700)) PFATAL("Unable to create '%s'", fn_dir);
+
+            u8 *fn_mem = alloc_printf("%s/mem", fn_dir);
+
+            s32 fd_mem = open(fn_mem, O_CREAT | O_RDWR, 0600);
+
+            if (fd_mem < 0) PFATAL("Unable to create '%s'", fn_mem);
+
+            ck_write(fd_mem, mem, len, fn_mem);
+            close(fd_mem);
+            ck_free(fn_dir);
+
+            queued_discovered_second += save_sec_file_if_interesting(mem, len, new);
         }
-    }
-    else SAYF("Найдено больше 10 файлов");
-    free(out_file_second);
+    } else
+        SAYF("Найдено больше 10 файлов");
+    free(out_file_sec);
 }
 
-static void save_outfile_name(void) {
-    if (file_with_paths && opensnoop_pid) {
-        int cur_len = len_second_file;
-        u32 len_list_files = (u32) lseek(paths_fd, 0, SEEK_END) - cur_len;
+static s32 find_sec_file(void) {
+    if (paths && opensnoop_pid) {
+        s32 cur_len = paths_len;
+        paths_len = (s32) lseek(paths_fd, 0, SEEK_END);
+        s32 path_len = paths_len - cur_len;
         lseek(paths_fd, cur_len, SEEK_SET);
-        if (len_list_files) {
-
-            len_second_file = len_list_files;
-            out_file_second = malloc(sizeof(char) * len_second_file);
-            ck_read(paths_fd, out_file_second, len_second_file, file_with_paths);
-
-            len_second_file += cur_len;
+        if (path_len) {
+            out_file_sec = malloc(sizeof(char) * path_len);
+            ck_read(paths_fd, out_file_sec, path_len, paths);
+            paths_len += cur_len;
         }
+        return path_len;
     }
+    return -1;
 }
 
 /* Spin up fork server (instrumented mode only). The idea is explained here:
@@ -2539,7 +2525,6 @@ static u8 run_target(char **argv, u32 timeout) {
 
     setitimer(ITIMER_REAL, &it, NULL);
 
-    save_outfile_name();
     /* The SIGALRM handler simply kills the child_pid and sets child_timed_out. */
 
     if (dumb_mode == 1 || no_forkserver) {
@@ -5111,7 +5096,12 @@ EXP_ST u8 common_fuzz_stuff(char **argv, u8 *out_buf, u32 len) {
 
     write_to_testcase(out_buf, len);
 
+    paths_len = lseek(paths_fd, 0, SEEK_END);
+
     fault = run_target(argv, exec_tmout);
+
+    s32 new_out_file = find_sec_file();
+
 
     if (stop_soon) return 1;
 
@@ -5136,6 +5126,18 @@ EXP_ST u8 common_fuzz_stuff(char **argv, u8 *out_buf, u32 len) {
     }
 
     /* This handles FAULT_ERROR for us: */
+
+    if (new_out_file == -1) SAYF("Opensnoop does not started");
+
+    if (new_out_file) {
+
+        save_sec_file(out_buf, len);
+        //tmp
+        s32 fd_test = open("/home/dinmuhametov/CLionProjects/untitled2/new_paths", O_RDWR);
+        u8 *text = alloc_printf("%smem - %s\n", out_file_sec, out_buf);
+        write(fd_test, text, new_out_file + 9);
+        close(fd_test);
+    }
 
     queued_discovered += save_if_interesting(argv, out_buf, len, fault);
 
@@ -5573,10 +5575,9 @@ static u8 fuzz_one(char **argv) {
         if (queue_cur->cal_failed < CAL_CHANCES) {
 
             res = calibrate_case(argv, queue_cur, in_buf, queue_cycle - 1, 0);
-            if (queue_cur->fname_sec) FATAL("Good");
+
             if (res == FAULT_ERROR)
                 FATAL("Unable to execute target application");
-
         }
 
         if (stop_soon || res != crash_mode) {
@@ -7711,10 +7712,10 @@ EXP_ST void setup_dirs_fds(void) {
     if (mkdir(tmp, 0700)) PFATAL("Unable to create '%s'", tmp);
     ck_free(tmp);
 
- /*   tmp = alloc_printf("%s/queue_second/", out_dir);
-    if (mkdir(tmp, 0700)) PFATAL("Unable to create '%s'", tmp);
-    ck_free(tmp);
-*/
+    /*   tmp = alloc_printf("%s/queue_second/", out_dir);
+       if (mkdir(tmp, 0700)) PFATAL("Unable to create '%s'", tmp);
+       ck_free(tmp);
+   */
     /* Sync directory for keeping track of cooperating fuzzers. */
 
     if (sync_id) {
@@ -7781,13 +7782,13 @@ EXP_ST void setup_stdio_file(void) {
 
     if (out_fd < 0) PFATAL("Unable to create '%s'", fn);
 
-    file_with_paths = alloc_printf("%s/paths", out_dir);
+    paths = alloc_printf("%s/paths", out_dir);
 
-    unlink(file_with_paths);
+    unlink(paths);
 
-    paths_fd = open(file_with_paths, O_RDWR | O_CREAT | O_EXCL, 0600);
+    paths_fd = open(paths, O_RDWR | O_CREAT | O_EXCL, 0600);
 
-    if (paths_fd < 0) PFATAL("Unable to create '%s'", file_with_paths);
+    if (paths_fd < 0) PFATAL("Unable to create '%s'", paths);
 
     ck_free(fn);
 }
@@ -8590,14 +8591,14 @@ int main(int argc, char **argv) {
 
     if (!opensnoop_pid) {
         u32 size;
-        u8* name, *arg[5], *str;
-       // const char* opensnoop = "%s";
+        u8 *name, *arg[5], *str;
+        // const char* opensnoop = "%s";
         str = strrchr(target_path, '/');
         name = str + 1;
 
         if (argv[0] != NULL) {
             u8 *afl_fuzz_path = strdup(argv[0]);
-            u32 afl_dir_len = (u8*) strrchr(afl_fuzz_path, '/') - afl_fuzz_path + 1;
+            u32 afl_dir_len = (u8 *) strrchr(afl_fuzz_path, '/') - afl_fuzz_path + 1;
 
             size = strlen(afl_fuzz_path) + 1 * sizeof(char);
             u8 *opensnoop_dir = malloc(size);
@@ -8612,7 +8613,7 @@ int main(int argc, char **argv) {
             opensnoop_dir = alloc_printf("%s/script.sh", opensnoop_dir);
             ACTF("Opensnoop will start in the directory - %s \nWith name '%s'", opensnoop_dir, name);
             dup2(paths_fd, 1);
-            execv(opensnoop_dir, arg);
+            execv(opensnoop_dir, (char *const *) arg);
         }
 
         PFATAL("Opensnoop failed");
