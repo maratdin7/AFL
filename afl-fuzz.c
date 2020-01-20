@@ -115,7 +115,7 @@ EXP_ST struct test_name {
             *queue_top,                    /* Top of the list                  */
             *q_prev100;                    /* Previous 100 marker              */
 
-      s32 out_dir_fd;           /* FD of the lock file              */
+    s32 out_dir_fd;           /* FD of the lock file              */
 
     /* struct queue_entry *
              top_rated[MAP_SIZE];       *//* Top entries for bitmap bytes     */
@@ -141,7 +141,7 @@ static s32 opensnoop_pid;            /* Opensnoop pid ВАУ                */
 static s32 paths_fd;                 /* Persistent fd for file_with_paths*/
 static s32 paths_len = 0;            /* Длинна файла с найденным файлами */
 
-static u8* main_out_dir;             /* Начальный out_dir                */
+static u8 *main_out_dir;             /* Начальный out_dir                */
 
 
 /* Lots of globals, but mostly for the status UI and other things where it
@@ -2065,18 +2065,18 @@ static void change_cur_index(s32 current_index, s32 new_index) {
     test[current_index].queued_with_cov = queued_with_cov;
     test[current_index].pending_not_fuzzed = pending_not_fuzzed;
     test[current_index].pending_favored = pending_favored;
-    test[current_index].cur_skipped_paths =cur_skipped_paths;
-    test[current_index].cur_depth =cur_depth;
-    test[current_index].max_depth =max_depth;
-    test[current_index].useless_at_start =useless_at_start;
-    test[current_index].var_byte_count =var_byte_count;
-    test[current_index].current_entry =current_index;
+    test[current_index].cur_skipped_paths = cur_skipped_paths;
+    test[current_index].cur_depth = cur_depth;
+    test[current_index].max_depth = max_depth;
+    test[current_index].useless_at_start = useless_at_start;
+    test[current_index].var_byte_count = var_byte_count;
+    test[current_index].current_entry = current_index;
     test[current_index].havoc_div = havoc_div;
 
     test[current_index].queue = queue;
-    test[current_index].queue_cur =queue_cur;
-    test[current_index].queue_top =queue_top;
-    test[current_index].q_prev100 =q_prev100;
+    test[current_index].queue_cur = queue_cur;
+    test[current_index].queue_top = queue_top;
+    test[current_index].q_prev100 = q_prev100;
 
     test[current_index].out_dir_fd = out_dir_fd;
 
@@ -2171,8 +2171,8 @@ static void save_sec_file(void *mem, u32 len) {
 
             havoc_div = 1;
             out_dir_fd = -1;
-
-            out_dir = alloc_printf("%s/%d/", main_out_dir, new + 1 );
+            out_file = ck_strdup(out_file_sec);
+            out_dir = alloc_printf("%s/%d/", main_out_dir, new + 1);
             // flock(out_dir_fd, LOCK_UN);
             setup_dirs_fds();
             u8 *fn_mem = alloc_printf("%s/mem", out_dir);
@@ -8158,6 +8158,8 @@ static void fix_up_sync(void) {
     sync_dir = out_dir;
     out_dir = x;
 
+    main_out_dir = ck_strdup(out_dir);
+
     if (!force_deterministic) {
         skip_deterministic = 1;
         use_splicing = 1;
@@ -8449,7 +8451,7 @@ int main(int argc, char **argv) {
 
                 if (out_dir) FATAL("Multiple -o options not supported");
                 out_dir = optarg;
-                main_out_dir = ck_strdup(out_dir);
+                //main_out_dir = ck_strdup(out_dir);
                 break;
 
             case 'M': { /* master sync ID */
@@ -8813,8 +8815,10 @@ int main(int argc, char **argv) {
             out_dir = alloc_printf("%s/%d", out_dir, i);
 */
 
-            u8 *fn_mem = alloc_printf("%s/mem", out_dir);
+            u8 *fn_mem = "/home/dinmuhametov/CLionProjects/untitled2/output/fuzzer1/1/mem"; //alloc_printf("/%s/%d/mem", main_out_dir, i+1);
+
             s32 fd_mem = open(fn_mem, O_CREAT | O_RDWR, 0600);
+            if ( fd_mem < 0 ) WARNF("fn_mem - %s\nНе существует", fn_mem);
             main_mem_len = (s32) lseek(fd_mem, 0, SEEK_END);
             lseek(fd_mem, 0, SEEK_SET);
             main_mem = malloc(main_mem_len * sizeof(u8));
@@ -8822,8 +8826,10 @@ int main(int argc, char **argv) {
             close(fd_mem);
 
             s32 last_index = cur_index;
+
             change_cur_index(cur_index, i + 1);
-            //queue_cur = queue;
+
+            queue_cur = queue;
             fuzz_one(use_argv);
 
             change_cur_index(cur_index, last_index);
@@ -8834,8 +8840,8 @@ int main(int argc, char **argv) {
            // current_entry = last_current_entry;
             free(last_out_dir);
             free(last_out_file);*/
-            free(fn_mem);
-            free(main_mem);
+         /*   free(fn_mem);
+            free(main_mem);*/
         }
         if (!stop_soon && sync_id && !skipped_fuzz) {
 
