@@ -115,8 +115,10 @@ EXP_ST struct test_name {
             *queue_top,                    /* Top of the list                  */
             *q_prev100;                    /* Previous 100 marker              */
 
-   /* struct queue_entry *
-            top_rated[MAP_SIZE];       *//* Top entries for bitmap bytes     */
+      s32 out_dir_fd;           /* FD of the lock file              */
+
+    /* struct queue_entry *
+             top_rated[MAP_SIZE];       *//* Top entries for bitmap bytes     */
 
 };
 
@@ -138,6 +140,8 @@ static s32 opensnoop_pid;            /* Opensnoop pid ВАУ                */
 
 static s32 paths_fd;                 /* Persistent fd for file_with_paths*/
 static s32 paths_len = 0;            /* Длинна файла с найденным файлами */
+
+static u8* main_out_dir;             /* Начальный out_dir                */
 
 
 /* Lots of globals, but mostly for the status UI and other things where it
@@ -2067,12 +2071,14 @@ static void change_cur_index(s32 current_index, s32 new_index) {
     test[current_index].useless_at_start =useless_at_start;
     test[current_index].var_byte_count =var_byte_count;
     test[current_index].current_entry =current_index;
-    test[current_index].havoc_div =havoc_div;
+    test[current_index].havoc_div = havoc_div;
 
     test[current_index].queue = queue;
     test[current_index].queue_cur =queue_cur;
     test[current_index].queue_top =queue_top;
     test[current_index].q_prev100 =q_prev100;
+
+    test[current_index].out_dir_fd = out_dir_fd;
 
     out_file = test[new_index].out_file;
     out_dir = test[new_index].out_dir;
@@ -2099,6 +2105,7 @@ static void change_cur_index(s32 current_index, s32 new_index) {
     queue_top = test[new_index].queue_top;
     q_prev100 = test[new_index].q_prev100;
 
+    out_dir_fd = test[new_index].out_dir_fd;
 /*
     queue_arr[current_index] = queue;
     queue_top_arr[current_index] = queue_top;
@@ -2159,23 +2166,23 @@ static void save_sec_file(void *mem, u32 len) {
             SAYF("%s\n", out_file_sec);
             out_files_names_size++;
 
-            u8 *real_out_dir = ck_strdup(out_dir);
-            out_dir = alloc_printf("%s/%d/", out_dir, new);
-            flock(out_dir_fd, LOCK_UN);
-            s32 real_out_dir_fd = out_dir_fd;
-            setup_dirs_fds();
+            s32 last_index = cur_index;
+            change_cur_index(last_index, new + 1);
 
+            havoc_div = 1;
+            out_dir_fd = -1;
+
+            out_dir = alloc_printf("%s/%d/", main_out_dir, new + 1 );
+            // flock(out_dir_fd, LOCK_UN);
+            setup_dirs_fds();
             u8 *fn_mem = alloc_printf("%s/mem", out_dir);
             s32 fd_mem = open(fn_mem, O_CREAT | O_RDWR, 0600);
             if (fd_mem < 0) PFATAL("Unable to create '%s'", fn_mem);
             ck_write(fd_mem, mem, len, fn_mem);
             close(fd_mem);
-            s32 last_index = cur_index;
-            change_cur_index(last_index, new + 1);
 
             queued_discovered_second += save_sec_file_if_interesting();
-            out_dir = ck_strdup(real_out_dir);
-            out_dir_fd = real_out_dir_fd;
+
             change_cur_index(cur_index, last_index);
         }
     } else
@@ -8442,6 +8449,7 @@ int main(int argc, char **argv) {
 
                 if (out_dir) FATAL("Multiple -o options not supported");
                 out_dir = optarg;
+                main_out_dir = ck_strdup(out_dir);
                 break;
 
             case 'M': { /* master sync ID */
@@ -8794,12 +8802,16 @@ int main(int argc, char **argv) {
             //u32 last_current_entry = current_entry;
             //current_entry = 0;
             //u32 last_queue_paths = queued_paths;
+/*
 
             u8 *last_out_file = ck_strdup(out_file);
             out_file = ck_strdup(out_files_names[i + 1]);
+*/
 
+/*
             u8 *last_out_dir = ck_strdup(out_dir);
             out_dir = alloc_printf("%s/%d", out_dir, i);
+*/
 
             u8 *fn_mem = alloc_printf("%s/mem", out_dir);
             s32 fd_mem = open(fn_mem, O_CREAT | O_RDWR, 0600);
@@ -8816,12 +8828,12 @@ int main(int argc, char **argv) {
 
             change_cur_index(cur_index, last_index);
 
-            out_file = ck_strdup(last_out_file);
+/*            out_file = ck_strdup(last_out_file);
             out_dir = ck_strdup(last_out_dir);
 
            // current_entry = last_current_entry;
             free(last_out_dir);
-            free(last_out_file);
+            free(last_out_file);*/
             free(fn_mem);
             free(main_mem);
         }
@@ -8882,6 +8894,9 @@ int main(int argc, char **argv) {
     fclose(plot_file);
     destroy_queue();
     destroy_extras();
+
+    ck_free(main_out_dir);
+
     ck_free(target_path);
     ck_free(sync_id);
 
