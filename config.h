@@ -338,7 +338,7 @@
 #define  CTEST_BUSY_CYCLES  (10 * 1000 * 1000)
 
 #define  NUM_OF_ADDITIONAL_FILES 10 /*number of additional files*/
-#define  QUEUE_ARR_SIZE (NUM_OF_ADDITIONAL_FILES+1)
+#define  TEST_ARR_SIZE (NUM_OF_ADDITIONAL_FILES+1)
 
 /* Uncomment this to use inferior block-coverage-based instrumentation. Note
    that you need to recompile the target binary for this to have any effect: */
