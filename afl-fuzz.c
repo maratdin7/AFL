@@ -65,7 +65,6 @@
 #include <sys/mman.h>
 #include <sys/ioctl.h>
 #include <sys/file.h>
-#include <ecpglib.h>
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined (__OpenBSD__)
 #  include <sys/sysctl.h>
@@ -2161,25 +2160,18 @@ static u8 save_sec_file_if_interesting() {
 }
 
 
-
 static void new_dir_preparation(void *mem, u32 len) {
 
     u8 *fn_mem = alloc_printf("%s/mem", out_dir);
     s32 fd_mem = open(fn_mem, O_CREAT | O_RDWR, 0600);
-
-    /* u8 *fn_log = alloc_printf("%s/log", out_dir);
-     s32 log_fd = open(fn_log, O_CREAT | O_RDWR, 0600);
-     if (log_fd < 0)
-         WARNF("log для файла - %s не может быть создан", out_file);
-
-     test[cur_index].log_fd = log_fd;
-     close(log_fd);*/
 
     if (fd_mem < 0) PFATAL("Unable to create '%s'", fn_mem);
     ck_write(fd_mem, mem, len, fn_mem);
 
     close(fd_mem);
 }
+
+static void pivot_inputs(void);
 
 static void add_new_out_file(void *mem, u32 len, s32 new) {
     s32 last_index = cur_index;
@@ -2193,16 +2185,18 @@ static void add_new_out_file(void *mem, u32 len, s32 new) {
     new_dir_preparation(mem, len);
 
 
+
     test[cur_index].main_mem = ck_strdup(mem);
     test[cur_index].main_mem_len = len;
 
     queued_discovered += save_sec_file_if_interesting();
 
+    pivot_inputs();
+
     change_cur_index(cur_index, last_index);
 }
 
 static void save_sec_file(void *mem, u32 len) {
-
     s32 new;
 
     if (!out_file_sec) FATAL("Outfile weren't written - %s", out_file_sec);
@@ -2239,9 +2233,16 @@ static s32 find_sec_file(void) {
         s32 path_len = paths_len - cur_len;
         lseek(paths_fd, cur_len, SEEK_SET);
         if (path_len) {
+            u8* temp = malloc(sizeof( u8 ) * (path_len+1));
+            read(paths_fd, temp, path_len);
             out_file_sec = malloc(sizeof(char) * (path_len + 1));
-            read(paths_fd, out_file_sec, path_len);
-            out_file_sec[path_len - 1] = '\0';
+
+            temp - strchr(temp, '\n');
+            out_file_sec = ck_strdup(temp);
+            //out_file_sec[strlen(out_file_sec)-1] = '\0';
+
+            free(temp);
+
             paths_len += cur_len;
         }
         return path_len;
@@ -5263,11 +5264,15 @@ EXP_ST u8 common_fuzz_stuff(char **argv, u8 *out_buf, u32 len) {
     write_to_testcase(out_buf, len);
 
     paths_len = lseek(paths_fd, 0, SEEK_END);
+    lseek(paths_fd, 0, SEEK_SET);
 
     fault = run_target(argv, exec_tmout);
 
     s32 new_out_file = find_sec_file();
 
+    if (new_out_file == -1) SAYF("Opensnoop does not started");
+
+    if (new_out_file) save_sec_file(out_buf, len);
 
     if (stop_soon) return 1;
 
@@ -5293,9 +5298,7 @@ EXP_ST u8 common_fuzz_stuff(char **argv, u8 *out_buf, u32 len) {
 
     /* This handles FAULT_ERROR for us: */
 
-    if (new_out_file == -1) SAYF("Opensnoop does not started");
 
-    if (new_out_file) save_sec_file(out_buf, len);
 
     queued_discovered += save_if_interesting(argv, out_buf, len, fault);
 
@@ -8752,32 +8755,35 @@ int main(int argc, char **argv) {
     if (!opensnoop_pid) {
         u32 size;
         u8 *name, *arg[5], *str;
-        // const char* opensnoop = "%s";
         str = strrchr(target_path, '/');
         name = str + 1;
 
         if (argv[0] != NULL) {
             u8 *afl_fuzz_path = strdup(argv[0]);
-            u32 afl_dir_len = (u8 *) strrchr(afl_fuzz_path, '/') - afl_fuzz_path + 1;
+            u32 afl_dir_len = (u8 *) strrchr(afl_fuzz_path, '/') - afl_fuzz_path;
 
-            size = strlen(afl_fuzz_path) + 1 * sizeof(char);
-            u8 *opensnoop_dir = malloc(size);
+            size = strlen(afl_fuzz_path) + 1;
+            u8 *opensnoop_dir = malloc(size * sizeof(u8));
             memcpy(opensnoop_dir, afl_fuzz_path, afl_dir_len);
-
+            opensnoop_dir[size - 1] = '\0';
             opensnoop_dir = alloc_printf("%s/opensnoop/", opensnoop_dir);
             arg[0] = "";
             arg[1] = opensnoop_dir;
             arg[2] = name;
             arg[3] = paths;
             arg[4] = NULL;
+
             opensnoop_dir = alloc_printf("%s/script.sh", opensnoop_dir);
             ACTF("Opensnoop will start in the directory - %s \nWith name '%s'", opensnoop_dir, name);
-            dup2(paths_fd, 1);
-            execv(opensnoop_dir, (char *const *) arg);
-        }
 
-        PFATAL("Opensnoop failed");
-        exit(0);
+            s32 fd = dup(STDOUT_FILENO);
+            dup2(paths_fd, STDOUT_FILENO);
+
+            execv(opensnoop_dir, (char *const *) arg);
+            dup2(fd, STDOUT_FILENO);
+            PFATAL("Opensnoop failed");
+        }
+        exit(1);
     }
 
     cull_queue();
