@@ -960,10 +960,10 @@ static inline u8 has_new_bits(u8 *virgin_map) {
 
 #else
 
-                                                                                                                            u32* current = (u32*)trace_bits;
-  u32* virgin  = (u32*)virgin_map;
+    u32 *current = (u32 *) trace_bits;
+    u32 *virgin = (u32 *) virgin_map;
 
-  u32  i = (MAP_SIZE >> 2);
+    u32 i = (MAP_SIZE >> 2);
 
 #endif /* ^__x86_64__ */
 
@@ -996,9 +996,10 @@ static inline u8 has_new_bits(u8 *virgin_map) {
 
 #else
 
-                                                                                                                                        if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
-            (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff)) ret = 2;
-        else ret = 1;
+                if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
+                    (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff))
+                    ret = 2;
+                else ret = 1;
 
 #endif /* ^__x86_64__ */
 
@@ -1155,27 +1156,27 @@ static void simplify_trace(u64 *mem) {
 
 #else
 
-                                                                                                                        static void simplify_trace(u32* mem) {
+static void simplify_trace(u32 *mem) {
 
-  u32 i = MAP_SIZE >> 2;
+    u32 i = MAP_SIZE >> 2;
 
-  while (i--) {
+    while (i--) {
 
-    /* Optimize for sparse bitmaps. */
+        /* Optimize for sparse bitmaps. */
 
-    if (unlikely(*mem)) {
+        if (unlikely(*mem)) {
 
-      u8* mem8 = (u8*)mem;
+            u8 *mem8 = (u8 *) mem;
 
-      mem8[0] = simplify_lookup[mem8[0]];
-      mem8[1] = simplify_lookup[mem8[1]];
-      mem8[2] = simplify_lookup[mem8[2]];
-      mem8[3] = simplify_lookup[mem8[3]];
+            mem8[0] = simplify_lookup[mem8[0]];
+            mem8[1] = simplify_lookup[mem8[1]];
+            mem8[2] = simplify_lookup[mem8[2]];
+            mem8[3] = simplify_lookup[mem8[3]];
 
-    } else *mem = 0x01010101;
+        } else *mem = 0x01010101;
 
-    mem++;
-  }
+        mem++;
+    }
 
 }
 
@@ -1245,26 +1246,26 @@ static inline void classify_counts(u64 *mem) {
 
 #else
 
-                                                                                                                        static inline void classify_counts(u32* mem) {
+static inline void classify_counts(u32 *mem) {
 
-  u32 i = MAP_SIZE >> 2;
+    u32 i = MAP_SIZE >> 2;
 
-  while (i--) {
+    while (i--) {
 
-    /* Optimize for sparse bitmaps. */
+        /* Optimize for sparse bitmaps. */
 
-    if (unlikely(*mem)) {
+        if (unlikely(*mem)) {
 
-      u16* mem16 = (u16*)mem;
+            u16 *mem16 = (u16 *) mem;
 
-      mem16[0] = count_class_lookup16[mem16[0]];
-      mem16[1] = count_class_lookup16[mem16[1]];
+            mem16[0] = count_class_lookup16[mem16[0]];
+            mem16[1] = count_class_lookup16[mem16[1]];
+
+        }
+
+        mem++;
 
     }
-
-    mem++;
-
-  }
 
 }
 
@@ -2135,27 +2136,16 @@ static void change_cur_index(s32 current_index, s32 new_index) {
 }
 
 static u8 save_sec_file_if_interesting() {
-    u8 *fn = "";
 
-    s32 tmp_fd = open(out_file_sec, O_RDWR, 0600);
-    if (tmp_fd < 0) PFATAL("File '%s' not open", out_file_sec);
-
-    u32 file_sec_len = lseek(tmp_fd, 0, SEEK_END);
+    s32 tmp_fd = open(out_files_names[cur_index], O_RDWR, 0600);
+    s32 len = lseek(tmp_fd, 0, SEEK_END);
     lseek(tmp_fd, 0, SEEK_SET);
-
-    fn = alloc_printf("%s/id_%06u", out_dir, queued_paths);
-
-    s32 fd = open(fn, O_CREAT | O_RDWR, 0600);
-    if (fd < 0) PFATAL("Unable to create '%s'", fn);
-
-    u8 *tmp_buf = malloc(sizeof(u8) * file_sec_len);
-    ck_read(tmp_fd, tmp_buf, file_sec_len, out_file_sec);
-    ck_write(fd, tmp_buf, file_sec_len, fn);
     close(tmp_fd);
-    close(fd);
 
-    add_to_queue(out_files_names[cur_index], file_sec_len, 0);
-    // переложи mem в fn_dir и рядом положи mem_file
+    if (len < 0) PFATAL("File '%s' not open", out_file_sec);
+    u8* fn = ck_strdup(out_files_names[cur_index]);
+    WARNF("save_sec_file - %s",fn);
+    add_to_queue(fn, len, 0);
     return 1;
 }
 
@@ -2183,7 +2173,6 @@ static void add_new_out_file(void *mem, u32 len, s32 new) {
     out_dir_fd = -1;
 
     new_dir_preparation(mem, len);
-
 
 
     test[cur_index].main_mem = ck_strdup(mem);
@@ -2228,22 +2217,32 @@ static void save_sec_file(void *mem, u32 len) {
 static s32 find_sec_file(void) {
 
     if (paths && opensnoop_pid) {
+        paths_len = 0;
         s32 cur_len = paths_len;
         paths_len = (s32) lseek(paths_fd, 0, SEEK_END);
         s32 path_len = paths_len - cur_len;
         lseek(paths_fd, cur_len, SEEK_SET);
         if (path_len) {
-            u8* temp = malloc(sizeof( u8 ) * (path_len+1));
+            u8 *temp = malloc(sizeof(u8) * (path_len + 1));
             read(paths_fd, temp, path_len);
-            out_file_sec = malloc(sizeof(char) * (path_len + 1));
-
-            temp - strchr(temp, '\n');
-            out_file_sec = ck_strdup(temp);
-            //out_file_sec[strlen(out_file_sec)-1] = '\0';
-
+            s32 i = 0;
+            s32 size = strlen(temp);
+            //SAYF("%s", temp);
+            while (i < size) {
+                if (temp[i] == '\n') {
+                    out_file_sec = malloc(sizeof(u8) * (++i));
+                    memcpy(out_file_sec,temp, i);
+                    break;
+                }
+                ++i;
+            }
             free(temp);
-
             paths_len += cur_len;
+            if (out_file_sec) out_file_sec[i-1] = '\0';
+            else {
+                free(out_file_sec);
+                return -1;
+            }
         }
         return path_len;
     }
@@ -2303,7 +2302,7 @@ EXP_ST void init_forkserver(char **argv) {
 according to reliable sources, RLIMIT_DATA covers anonymous
 maps - so we should be getting good protection against OOM bugs. */
 
-setrlimit(RLIMIT_DATA, &r); /* Ignore errors */
+            setrlimit(RLIMIT_DATA, &r); /* Ignore errors */
 
 #endif /* ^RLIMIT_AS */
 
@@ -2732,7 +2731,7 @@ static u8 run_target(char **argv, u32 timeout) {
 #ifdef __x86_64__
     classify_counts((u64 *) trace_bits);
 #else
-    classify_counts((u32*)trace_bits);
+    classify_counts((u32 *) trace_bits);
 #endif /* ^__x86_64__ */
 
     prev_timed_out = child_timed_out;
@@ -2775,28 +2774,32 @@ static u8 run_target(char **argv, u32 timeout) {
 
 static void write_to_testcase(void *mem, u32 len) {
 
-    s32 fd = out_fd;
-    if (out_file && cur_index != 0) {
+        s32 fd = out_fd;
 
-        unlink(out_file); /* Ignore errors. */
+        if (out_file) {
 
-        fd = open(out_file, O_WRONLY | O_CREAT | O_EXCL, 0600);
+            unlink(out_file); /* Ignore errors. */
 
-        if (fd < 0) PFATAL("Unable to create '%s'", out_file);
+            fd = open(out_file, O_WRONLY | O_CREAT | O_EXCL, 0600);
 
-        //я
-        ck_write(out_fd, test[cur_index].main_mem, test[cur_index].main_mem_len, out_file);
+            if (fd < 0) PFATAL("Unable to create '%s'", out_file);
 
-    } else lseek(fd, 0, SEEK_SET);
+        } else lseek(fd, 0, SEEK_SET);
 
-    ck_write(fd, mem, len, out_file);
+        ck_write(fd, mem, len, out_file);
 
-    if (!out_file) {
+        if (cur_index != 0) {
+            ck_write(out_fd,test[cur_index].main_mem, test[cur_index].main_mem_len, out_file);
+            if (ftruncate(out_fd, len)) PFATAL("ftruncate() failed");
+            lseek(out_fd, 0, SEEK_SET);
+        }
 
-        if (ftruncate(fd, len)) PFATAL("ftruncate() failed");
-        lseek(fd, 0, SEEK_SET);
+        if (!out_file) {
 
-    } else close(fd);
+            if (ftruncate(fd, len)) PFATAL("ftruncate() failed");
+            lseek(fd, 0, SEEK_SET);
+
+        } else close(fd);
 
 }
 
@@ -3507,7 +3510,7 @@ static u8 save_if_interesting(char **argv, void *mem, u32 len, u8 fault) {
 #ifdef __x86_64__
                 simplify_trace((u64 *) trace_bits);
 #else
-                simplify_trace((u32*)trace_bits);
+                simplify_trace((u32 *) trace_bits);
 #endif /* ^__x86_64__ */
 
                 if (!has_new_bits(virgin_tmout)) return keeping;
@@ -3571,7 +3574,7 @@ static u8 save_if_interesting(char **argv, void *mem, u32 len, u8 fault) {
 #ifdef __x86_64__
                 simplify_trace((u64 *) trace_bits);
 #else
-                simplify_trace((u32*)trace_bits);
+                simplify_trace((u32 *) trace_bits);
 #endif /* ^__x86_64__ */
 
                 if (!has_new_bits(virgin_crash)) return keeping;
@@ -4948,33 +4951,38 @@ static void show_stats(void) {
 
 #ifdef HAVE_AFFINITY
 
-        if (cpu_aff >= 0) {
+            if (cpu_aff >= 0) {
 
-            SAYF(SP10
-                         cGRA
-                         "[cpu%03u:%s%3u%%"
-                         cGRA
-                         "]\r"
-                         cRST,
-                 MIN(cpu_aff, 999), cpu_color,
-                 MIN(cur_utilization, 999));
+                SAYF(SP10
+                             cGRA
+                             "[cpu%03u:%s%3u%%"
+                             cGRA
+                             "]\r"
+                             cRST,
+                     MIN(cpu_aff, 999), cpu_color,
+                     MIN(cur_utilization, 999));
 
-        } else {
+            } else {
 
-            SAYF(SP10
-                         cGRA
-                         "   [cpu:%s%3u%%"
-                         cGRA
-                         "]\r"
-                         cRST,
-                 cpu_color, MIN(cur_utilization, 999));
+                SAYF(SP10
+                             cGRA
+                             "   [cpu:%s%3u%%"
+                             cGRA
+                             "]\r"
+                             cRST,
+                     cpu_color, MIN(cur_utilization, 999));
 
-        }
+            }
 
 #else
 
-                                                                                                                                SAYF(SP10 cGRA "   [cpu:%s%3u%%" cGRA "]\r" cRST,
-         cpu_color, MIN(cur_utilization, 999));
+        SAYF(SP10
+                     cGRA
+                     "   [cpu:%s%3u%%"
+                     cGRA
+                     "]\r"
+                     cRST,
+             cpu_color, MIN(cur_utilization, 999));
 
 #endif /* ^HAVE_AFFINITY */
 
@@ -5263,7 +5271,8 @@ EXP_ST u8 common_fuzz_stuff(char **argv, u8 *out_buf, u32 len) {
 
     write_to_testcase(out_buf, len);
 
-    paths_len = lseek(paths_fd, 0, SEEK_END);
+    if (ftruncate(paths_fd, 0)) PFATAL("ftruncate() failed");
+    //paths_len = lseek(paths_fd, 0, SEEK_END);
     lseek(paths_fd, 0, SEEK_SET);
 
     fault = run_target(argv, exec_tmout);
@@ -8116,15 +8125,15 @@ static void get_core_count(void) {
 
 #else
 
-                                                                                                                            FILE* f = fopen("/proc/stat", "r");
-  u8 tmp[1024];
+    FILE *f = fopen("/proc/stat", "r");
+    u8 tmp[1024];
 
-  if (!f) return;
+    if (!f) return;
 
-  while (fgets(tmp, sizeof(tmp), f))
-    if (!strncmp(tmp, "cpu", 3) && isdigit(tmp[3])) cpu_core_count++;
+    while (fgets(tmp, sizeof(tmp), f))
+        if (!strncmp(tmp, "cpu", 3) && isdigit(tmp[3])) cpu_core_count++;
 
-  fclose(f);
+    fclose(f);
 
 #endif /* ^HAVE_AFFINITY */
 
@@ -8397,9 +8406,9 @@ static char **get_qemu_argv(u8 *own_loc, char **argv, int argc) {
     } else
         ck_free(own_copy);
 
-    if (!access( BIN_PATH "/afl-qemu-trace", X_OK)) {
+    if (!access(BIN_PATH "/afl-qemu-trace", X_OK)) {
 
-        target_path = new_argv[0] = ck_strdup( BIN_PATH
+        target_path = new_argv[0] = ck_strdup(BIN_PATH
         "/afl-qemu-trace");
         return new_argv;
 
@@ -8475,7 +8484,7 @@ int main(int argc, char **argv) {
                  cRST
                  " by <lcamtuf@google.com>\n");
 
-    doc_path = access( DOC_PATH, F_OK) ? "docs" : DOC_PATH;
+    doc_path = access(DOC_PATH, F_OK) ? "docs" : DOC_PATH;
 
     gettimeofday(&tv, &tz);
     srandom(tv.tv_sec ^ tv.tv_usec ^ getpid());
