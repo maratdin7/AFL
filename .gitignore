@@ -24,4 +24,3 @@ afl-llvm-rt.o
 !examples/simple_test/input/
 !examples/simple_test/main.cpp
 !examples/simple_test/CMakeLists.txt
-examples/*
