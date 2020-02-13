@@ -2143,8 +2143,8 @@ static u8 save_sec_file_if_interesting() {
     close(tmp_fd);
 
     if (len < 0) PFATAL("File '%s' not open", out_file_sec);
-    u8* fn = ck_strdup(out_files_names[cur_index]);
-    WARNF("save_sec_file - %s",fn);
+    u8 *fn = ck_strdup(out_files_names[cur_index]);
+    WARNF("save_sec_file - %s", fn);
     add_to_queue(fn, len, 0);
     return 1;
 }
@@ -2231,14 +2231,14 @@ static s32 find_sec_file(void) {
             while (i < size) {
                 if (temp[i] == '\n') {
                     out_file_sec = malloc(sizeof(u8) * (++i));
-                    memcpy(out_file_sec,temp, i);
+                    memcpy(out_file_sec, temp, i);
                     break;
                 }
                 ++i;
             }
             free(temp);
             paths_len += cur_len;
-            if (out_file_sec) out_file_sec[i-1] = '\0';
+            if (out_file_sec) out_file_sec[i - 1] = '\0';
             else {
                 free(out_file_sec);
                 return -1;
@@ -2774,32 +2774,32 @@ static u8 run_target(char **argv, u32 timeout) {
 
 static void write_to_testcase(void *mem, u32 len) {
 
-        s32 fd = out_fd;
+    s32 fd = out_fd;
 
-        if (out_file) {
+    if (out_file) {
 
-            unlink(out_file); /* Ignore errors. */
+        unlink(out_file); /* Ignore errors. */
 
-            fd = open(out_file, O_WRONLY | O_CREAT | O_EXCL, 0600);
+        fd = open(out_file, O_WRONLY | O_CREAT | O_EXCL, 0600);
 
-            if (fd < 0) PFATAL("Unable to create '%s'", out_file);
+        if (fd < 0) PFATAL("Unable to create '%s'", out_file);
 
-        } else lseek(fd, 0, SEEK_SET);
+    } else lseek(fd, 0, SEEK_SET);
 
-        ck_write(fd, mem, len, out_file);
+    ck_write(fd, mem, len, out_file);
 
-        if (cur_index != 0) {
-            ck_write(out_fd,test[cur_index].main_mem, test[cur_index].main_mem_len, out_file);
-            if (ftruncate(out_fd, len)) PFATAL("ftruncate() failed");
-            lseek(out_fd, 0, SEEK_SET);
-        }
+    if (cur_index != 0) {
+        ck_write(out_fd, test[cur_index].main_mem, test[cur_index].main_mem_len, out_file);
+        if (ftruncate(out_fd, len)) PFATAL("ftruncate() failed");
+        lseek(out_fd, 0, SEEK_SET);
+    }
 
-        if (!out_file) {
+    if (!out_file) {
 
-            if (ftruncate(fd, len)) PFATAL("ftruncate() failed");
-            lseek(fd, 0, SEEK_SET);
+        if (ftruncate(fd, len)) PFATAL("ftruncate() failed");
+        lseek(fd, 0, SEEK_SET);
 
-        } else close(fd);
+    } else close(fd);
 
 }
 
@@ -4951,28 +4951,28 @@ static void show_stats(void) {
 
 #ifdef HAVE_AFFINITY
 
-            if (cpu_aff >= 0) {
+        if (cpu_aff >= 0) {
 
-                SAYF(SP10
-                             cGRA
-                             "[cpu%03u:%s%3u%%"
-                             cGRA
-                             "]\r"
-                             cRST,
-                     MIN(cpu_aff, 999), cpu_color,
-                     MIN(cur_utilization, 999));
+            SAYF(SP10
+                         cGRA
+                         "[cpu%03u:%s%3u%%"
+                         cGRA
+                         "]\r"
+                         cRST,
+                 MIN(cpu_aff, 999), cpu_color,
+                 MIN(cur_utilization, 999));
 
-            } else {
+        } else {
 
-                SAYF(SP10
-                             cGRA
-                             "   [cpu:%s%3u%%"
-                             cGRA
-                             "]\r"
-                             cRST,
-                     cpu_color, MIN(cur_utilization, 999));
+            SAYF(SP10
+                         cGRA
+                         "   [cpu:%s%3u%%"
+                         cGRA
+                         "]\r"
+                         cRST,
+                 cpu_color, MIN(cur_utilization, 999));
 
-            }
+        }
 
 #else
 
@@ -8406,9 +8406,9 @@ static char **get_qemu_argv(u8 *own_loc, char **argv, int argc) {
     } else
         ck_free(own_copy);
 
-    if (!access(BIN_PATH "/afl-qemu-trace", X_OK)) {
+    if (!access( BIN_PATH "/afl-qemu-trace", X_OK)) {
 
-        target_path = new_argv[0] = ck_strdup(BIN_PATH
+        target_path = new_argv[0] = ck_strdup( BIN_PATH
         "/afl-qemu-trace");
         return new_argv;
 
@@ -8484,7 +8484,7 @@ int main(int argc, char **argv) {
                  cRST
                  " by <lcamtuf@google.com>\n");
 
-    doc_path = access(DOC_PATH, F_OK) ? "docs" : DOC_PATH;
+    doc_path = access( DOC_PATH, F_OK) ? "docs" : DOC_PATH;
 
     gettimeofday(&tv, &tz);
     srandom(tv.tv_sec ^ tv.tv_usec ^ getpid());
@@ -8814,12 +8814,19 @@ int main(int argc, char **argv) {
         if (stop_soon) goto stop_fuzzing;
     }
 
-    u32 last_file_index = 0, last_index = 0;
+    u32 last_file_index = 0;
 
     while (1) {
 
         if (last_file_index < out_files_names_size) last_file_index++;
-        else last_file_index = 0;
+        else {
+            last_file_index = 0;
+            if (cur_index == 1) {
+                s32 fd = open(out_files_names[1], O_TRUNC | O_RDWR, 0600);
+                write(fd, "q\0", 2);
+                close(fd);
+            }
+        }
 
         change_cur_index(cur_index, last_file_index);
         u8 skipped_fuzz;
