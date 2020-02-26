@@ -18,9 +18,3 @@ afl-llvm-pass.so
 afl-llvm-rt-32.o
 afl-llvm-rt-64.o
 afl-llvm-rt.o
-
-# my
-!examples/simple_test/script.sh
-!examples/simple_test/input/
-!examples/simple_test/main.cpp
-!examples/simple_test/CMakeLists.txt

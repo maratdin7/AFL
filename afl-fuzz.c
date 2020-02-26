@@ -128,14 +128,15 @@ EXP_ST struct
 
 EXP_ST u8 *paths,                      /* File with paths                  */
         *out_file_sec;                 /* Second file to fuzz              */
-
+u8 *out_file_sec_arr[TEST_ARR_SIZE];
+u32 out_file_sec_arr_size = 0;
 static u8 *out_files_names[TEST_ARR_SIZE];
 static u32 out_files_names_size = 0;
 
 //static u8 *main_mem;                  /* главный ввод передаваемый вместе с новым найденным файлом */
 //static s32 main_mem_len = 0;
 
-static s32 cur_index = 0;            /* Нынешний индекс                  */
+static s32 cur_index = 1;            /* Нынешний индекс                  */
 
 static s32 opensnoop_pid;            /* Opensnoop pid ВАУ                */
 
@@ -2121,13 +2122,14 @@ static void change_cur_index(s32 current_index, s32 new_index) {
 
     s32 log_fd = 1, current_log_fd;
     if (current_index != new_index) {
-        if (current_index == 0) {
+        if (current_index == 1) { // index
             log_fd = log_pid(out_dir);
             std_fd = dup(STDOUT_FILENO);
 
         } else log_fd = std_fd;
 
-        if (dup2(log_fd, STDOUT_FILENO) < 0) FATAL("Проблемы с dup2 errno %d", errno);
+        if (dup2(log_fd, STDOUT_FILENO) < 0)
+            FATAL("Проблемы с dup2 errno %d", errno);
 
         close(log_fd);
     }
@@ -2214,7 +2216,7 @@ static void save_sec_file(void *mem, u32 len) {
     free(out_file_sec);
 }
 
-static s32 find_sec_file(void) {
+static s32 find_sec_file(void *mem, u32 len) {
 
     if (paths && opensnoop_pid) {
         paths_len = 0;
@@ -2228,21 +2230,35 @@ static s32 find_sec_file(void) {
             s32 i = 0;
             s32 size = strlen(temp);
             //SAYF("%s", temp);
+            int j = 0;
+            int previous = 0;
             while (i < size) {
                 if (temp[i] == '\n') {
-                    out_file_sec = malloc(sizeof(u8) * (++i));
-                    memcpy(out_file_sec, temp, i);
-                    break;
+                    out_file_sec = malloc(sizeof(u8) * (i + 1 - previous));
+                    memcpy(out_file_sec, temp + previous, i + 1 - previous);
+                    //out_file_sec += previous;
+                    out_file_sec[i - previous] = '\0';
+                    previous = i + 1;
+                    save_sec_file(mem, len);
+
+                    /*out_file_sec_arr[j] = malloc(sizeof(u8) * (++i - previous));
+                    memcpy(out_file_sec_arr[j], temp, i);
+                    out_file_sec_arr[j]+=previous;
+                    out_file_sec_arr[j][i - 1 - previous] = '\0';
+                    j++;
+                    previous = i + 1;
+                    out_file_sec_arr_size++;*/
+                    // break;
                 }
                 ++i;
             }
             free(temp);
             paths_len += cur_len;
-            if (out_file_sec) out_file_sec[i - 1] = '\0';
-            else {
-                free(out_file_sec);
-                return -1;
-            }
+            /*  if (out_file_sec) out_file_sec[i - 1] = '\0';
+              else {
+                  free(out_file_sec);
+                  return -1;
+              }*/
         }
         return path_len;
     }
@@ -2786,12 +2802,30 @@ static void write_to_testcase(void *mem, u32 len) {
 
     } else lseek(fd, 0, SEEK_SET);
 
+
     ck_write(fd, mem, len, out_file);
 
-    if (cur_index != 0) {
-        ck_write(out_fd, test[cur_index].main_mem, test[cur_index].main_mem_len, out_file);
-        if (ftruncate(out_fd, len)) PFATAL("ftruncate() failed");
-        lseek(out_fd, 0, SEEK_SET);
+    if (cur_index > 1) {
+        s32 fd_main = out_fd;
+
+        if (test[1].out_file) {
+
+            unlink(test[1].out_file); /* Ignore errors. */
+
+            fd_main = open(test[1].out_file, O_WRONLY | O_CREAT | O_EXCL, 0600);
+
+            if (fd_main < 0) PFATAL("Unable to create '%s'", test[1].out_file);
+
+        } else lseek(fd_main, 0, SEEK_SET);
+
+        ck_write(fd_main, test[cur_index].main_mem, test[cur_index].main_mem_len, test[1].out_file);
+
+        if (!test[1].out_file) {
+
+            if (ftruncate(fd_main, len)) PFATAL("ftruncate() failed");
+            lseek(fd_main, 0, SEEK_SET);
+
+        } else close(fd_main);
     }
 
     if (!out_file) {
@@ -5277,11 +5311,20 @@ EXP_ST u8 common_fuzz_stuff(char **argv, u8 *out_buf, u32 len) {
 
     fault = run_target(argv, exec_tmout);
 
-    s32 new_out_file = find_sec_file();
+    s32 new_out_file = find_sec_file(out_buf, len);
 
     if (new_out_file == -1) SAYF("Opensnoop does not started");
 
-    if (new_out_file) save_sec_file(out_buf, len);
+/*
+    for (u32 i = 0; i < out_file_sec_arr_size; i++) {
+
+        out_file_sec = out_file_sec_arr[i];
+        if (new_out_file) save_sec_file(out_buf, len);
+        //free(out_file_sec_arr[i]);
+    }
+*/
+
+    out_file_sec_arr_size = 0;
 
     if (stop_soon) return 1;
 
@@ -7952,14 +7995,6 @@ EXP_ST void setup_stdio_file(void) {
 
     if (out_fd < 0) PFATAL("Unable to create '%s'", fn);
 
-    paths = alloc_printf("%s/paths", out_dir);
-
-    unlink(paths);
-
-    paths_fd = open(paths, O_RDWR | O_CREAT | O_EXCL, 0600);
-
-    if (paths_fd < 0) PFATAL("Unable to create '%s'", paths);
-
     ck_free(fn);
 }
 
@@ -8746,6 +8781,19 @@ int main(int argc, char **argv) {
 
     if (!out_file) setup_stdio_file();
 
+    paths = alloc_printf("%s/paths", out_dir);//fdggggggggggggggggggggggggggg
+
+    unlink(paths);
+
+    paths_fd = open(paths, O_RDWR | O_CREAT | O_EXCL, 0600);
+
+    if (paths_fd < 0) PFATAL("Unable to create '%s'", paths);//fgggggggggggggggggggggggggggggg
+
+    if (out_file) {
+        out_files_names[1] = strdup(out_file); //ffffffffffffffffffffff
+        out_files_names_size = 1;
+    }
+
     check_binary(argv[optind]);
 
     start_time = get_cur_time();
@@ -8815,13 +8863,15 @@ int main(int argc, char **argv) {
     }
 
     u32 last_file_index = 0;
-
+    if (out_file) last_file_index = 1;
     while (1) {
 
         if (last_file_index < out_files_names_size) last_file_index++;
         else {
             last_file_index = 0;
-            if (cur_index == 1) {
+            if (out_file) last_file_index = 1;
+
+            if (cur_index == 2) {
                 s32 fd = open(out_files_names[1], O_TRUNC | O_RDWR, 0600);
                 write(fd, "q\0", 2);
                 close(fd);

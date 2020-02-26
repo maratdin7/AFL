@@ -5,11 +5,13 @@
 using namespace std;
 
 int main() {
-    int a;
-    cin >> a;
+    char[2] a;
+        const char *fn_a = "example/simple_test/test_a";
+        int fd_a = open(fn, O_CREAT | O_RDWR, 0600);
+	a = read(fd_a, a, 2); 
     int b = 1;
 
-    if (a == 10) {
+    if (a == "10") {
         const char *fn = "example/simple_test/test";
         int fd = open(fn, O_CREAT | O_RDWR, 0600);
         if (fd >= 0) {
