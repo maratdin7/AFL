@@ -31,6 +31,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
+#include <zconf.h>
 
 #include "config.h"
 #include "types.h"
@@ -298,7 +300,7 @@ static inline void* DFL_ck_memdup(void* mem, u32 size) {
   ALLOC_CHECK_SIZE(size);
   ret = malloc(size + ALLOC_OFF_TOTAL);
   ALLOC_CHECK_RESULT(ret, size);
-  
+
   ret += ALLOC_OFF_HEAD;
 
   ALLOC_C1(ret) = ALLOC_MAGIC_C1;
@@ -322,7 +324,7 @@ static inline u8* DFL_ck_memdup_str(u8* mem, u32 size) {
   ALLOC_CHECK_SIZE(size);
   ret = malloc(size + ALLOC_OFF_TOTAL + 1);
   ALLOC_CHECK_RESULT(ret, size);
-  
+
   ret += ALLOC_OFF_HEAD;
 
   ALLOC_C1(ret) = ALLOC_MAGIC_C1;
@@ -336,6 +338,19 @@ static inline u8* DFL_ck_memdup_str(u8* mem, u32 size) {
 
 }
 
+static inline u8* DFL_ck_copy(u8* fn) {
+    s32 fd = open(fn, O_RDWR, 0600);
+    if (fd < 0) PFATAL("Unable to open '%s'", fn);
+
+    s32 len= lseek(fd, 0, SEEK_END);
+    lseek(fd, 0, SEEK_SET);
+
+    u8* ret = malloc(len * sizeof(u8));
+
+    ck_read(fd, ret, len, fn);
+    close(fd);
+    return ret;
+}
 
 #ifndef DEBUG_BUILD
 
@@ -352,6 +367,8 @@ static inline u8* DFL_ck_memdup_str(u8* mem, u32 size) {
 #define ck_free           DFL_ck_free
 
 #define alloc_report()
+
+#define ck_copy           DFL_ck_copy
 
 #else
 
