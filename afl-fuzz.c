@@ -2297,7 +2297,6 @@ maps - so we should be getting good protection against OOM bugs. */
        specified, stdin is /dev/null; otherwise, out_fd is cloned instead. */
 
         setsid();
-
         dup2(dev_null_fd, 1);
         dup2(dev_null_fd, 2);
 
@@ -2606,7 +2605,6 @@ static u8 run_target(char **argv, u32 timeout) {
                 close(out_fd);
 
             }
-
             /* On Linux, would be faster to use O_CLOEXEC. Maybe TODO. */
 
             close(dev_null_fd);
@@ -8725,12 +8723,13 @@ int main(int argc, char **argv) {
 
     paths = alloc_printf("%s/paths", out_dir);
 
-    paths_fd = open(paths, O_RDWR | O_CREAT | O_EXCL, 0600);
+    paths_fd = open(paths, O_RDWR | O_CREAT | O_EXCL, 0600); //обрезать перед началом
 
     if (paths_fd < 0) PFATAL("Unable to create '%s'", paths);
 
-    out_files_names[0] = strdup(out_file);
-    out_files_names_size = 1;
+    if (out_file) out_files_names[0] = strdup(out_file);
+    else out_files_names[0] = "";
+        out_files_names_size = 1;
 
     check_binary(argv[optind]);
 
@@ -8811,9 +8810,9 @@ int main(int argc, char **argv) {
         if (cur_index != last_file_index) {
             if (cur_index != 0) {
                 test[cur_index].last_condition = ck_copy(out_files_names[cur_index]);
-                s32 fd = open(out_files_names[last_file_index], O_RDWR, 0600);
+                s32 fd = open(out_files_names[cur_index], O_RDWR, 0600);
                 ck_write(fd, test[cur_index].first_condition, strlen(test[cur_index].first_condition),
-                         out_files_names[last_file_index]);
+                         out_files_names[cur_index]);
                 close(fd);
             }
             change_cur_index(cur_index, last_file_index);
