@@ -4209,6 +4209,7 @@ static void maybe_delete_out_dir(void) {
 
 static void check_term_size(void);
 
+
 /* A spiffy retro stats screen! This is called every stats_update_freq
    execve() calls, plus in several other circumstances. */
 
@@ -8434,6 +8435,14 @@ static void save_cmdline(u32 argc, char **argv) {
 
 }
 
+void log_in_file() {
+    u8* fn = alloc_printf("%s/log", out_dir);
+    s32 fd = open(fn, O_CREAT|O_WRONLY);
+    if (fd < 0) WARNF("The log does not open fn - %s", fn);
+    else dup2(STDERR_FILENO, fd);
+    ck_free(fn);
+    LOG("START OF THE LOG");
+}
 
 #ifndef AFL_LIB
 
@@ -8742,6 +8751,8 @@ int main(int argc, char **argv) {
 
     perform_dry_run(use_argv);
 
+    log_in_file();
+
     opensnoop_pid = fork();
 
     if (opensnoop_pid < 0) PFATAL("fork() failed");
@@ -8940,5 +8951,7 @@ int main(int argc, char **argv) {
     exit(0);
 
 }
+
+
 
 #endif /* !AFL_LIB */

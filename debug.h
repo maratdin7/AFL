@@ -169,15 +169,17 @@
 
 #ifdef MESSAGES_TO_STDOUT
 #  define SAYF(x...)    printf(x)
-#else 
+#  define SAY(x...) fprintf(stderr, x)
+#else
 #  define SAYF(x...)    fprintf(stderr, x)
+#  define SAY(x...) SAYF(x)
 #endif /* ^MESSAGES_TO_STDOUT */
 
 /* Show a prefixed warning. */
 
 #define WARNF(x...) do { \
-    SAYF(cYEL "[!] " cBRI "WARNING: " cRST x); \
-    SAYF(cRST "\n"); \
+    SAY(cYEL "[!] " cBRI "WARNING: " cRST x); \
+    SAY(cRST "\n"); \
   } while (0)
 
 /* Show a prefixed "doing something" message. */
@@ -197,16 +199,16 @@
 /* Show a prefixed fatal error message (not used in afl). */
 
 #define BADF(x...) do { \
-    SAYF(cLRD "\n[-] " cRST x); \
-    SAYF(cRST "\n"); \
+    SAY(cLRD "\n[-] " cRST x); \
+    SAY(cRST "\n"); \
   } while (0)
 
 /* Die with a verbose non-OS fatal error message. */
 
 #define FATAL(x...) do { \
-    SAYF(bSTOP RESET_G1 CURSOR_SHOW cRST cLRD "\n[-] PROGRAM ABORT : " \
+    SAY(bSTOP RESET_G1 CURSOR_SHOW cRST cLRD "\n[-] PROGRAM ABORT : " \
          cBRI x); \
-    SAYF(cLRD "\n         Location : " cRST "%s(), %s:%u\n\n", \
+    SAY(cLRD "\n         Location : " cRST "%s(), %s:%u\n\n", \
          __FUNCTION__, __FILE__, __LINE__); \
     exit(1); \
   } while (0)
@@ -214,9 +216,9 @@
 /* Die by calling abort() to provide a core dump. */
 
 #define ABORT(x...) do { \
-    SAYF(bSTOP RESET_G1 CURSOR_SHOW cRST cLRD "\n[-] PROGRAM ABORT : " \
+    SAY(bSTOP RESET_G1 CURSOR_SHOW cRST cLRD "\n[-] PROGRAM ABORT : " \
          cBRI x); \
-    SAYF(cLRD "\n    Stop location : " cRST "%s(), %s:%u\n\n", \
+    SAY(cLRD "\n    Stop location : " cRST "%s(), %s:%u\n\n", \
          __FUNCTION__, __FILE__, __LINE__); \
     abort(); \
   } while (0)
@@ -225,11 +227,11 @@
 
 #define PFATAL(x...) do { \
     fflush(stdout); \
-    SAYF(bSTOP RESET_G1 CURSOR_SHOW cRST cLRD "\n[-]  SYSTEM ERROR : " \
+    SAY(bSTOP RESET_G1 CURSOR_SHOW cRST cLRD "\n[-]  SYSTEM ERROR : " \
          cBRI x); \
-    SAYF(cLRD "\n    Stop location : " cRST "%s(), %s:%u\n", \
+    SAY(cLRD "\n    Stop location : " cRST "%s(), %s:%u\n", \
          __FUNCTION__, __FILE__, __LINE__); \
-    SAYF(cLRD "       OS message : " cRST "%s\n", strerror(errno)); \
+    SAY(cLRD "       OS message : " cRST "%s\n", strerror(errno)); \
     exit(1); \
   } while (0)
 
@@ -254,5 +256,12 @@
     s32 _res = read(fd, buf, _len); \
     if (_res != _len) RPFATAL(_res, "Short read from %s", fn); \
   } while (0)
+
+#define LOG(x...) do {\
+    if (errno == 0) SAY("%u: %s \n",__LINE__, x);\
+    else {\
+        PFATAL(x);\
+    }\
+} while (0)
 
 #endif /* ! _HAVE_DEBUG_H */
