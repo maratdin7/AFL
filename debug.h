@@ -258,10 +258,9 @@
   } while (0)
 
 #define LOG(x...) do {\
-    if (errno == 0) SAY("%u: %s \n",__LINE__, x);\
-    else {\
-        PFATAL(x);\
-    }\
+    SAY("%u:", __LINE__);\
+    SAY(x);\
+    SAY("\n");\
 } while (0)
 
 #endif /* ! _HAVE_DEBUG_H */

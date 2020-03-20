@@ -90,29 +90,29 @@
 EXP_ST struct test_name {
 
     u8 *out_file,                      /* File to fuzz, if any             */
-            *out_dir;                       /* Working & output directory       */
+    *out_dir;                       /* Working & output directory       */
 
     u32 queued_paths,                  /* Total number of queued testcases */
-            queued_variable,           /* Testcases with variable behavior */
-            queued_at_start,           /* Total number of initial inputs   */
-            queued_discovered,         /* Items discovered during this run */
-            queued_imported,           /* Items imported via -S            */
-            queued_favored,            /* Paths deemed favorable           */
-            queued_with_cov,           /* Paths with new coverage bytes    */
-            pending_not_fuzzed,        /* Queued but not done yet          */
-            pending_favored,           /* Pending favored paths            */
-            cur_skipped_paths,         /* Abandoned inputs in cur cycle    */
-            cur_depth,                 /* Current path depth               */
-            max_depth,                 /* Max path depth                   */
-            useless_at_start,          /* Number of useless starting paths */
-            var_byte_count,            /* Bitmap bytes with var behavior   */
-            current_entry,             /* Current queue entry ID           */
-            havoc_div;                 /* Cycle count divisor for havoc    */
+    queued_variable,           /* Testcases with variable behavior */
+    queued_at_start,           /* Total number of initial inputs   */
+    queued_discovered,         /* Items discovered during this run */
+    queued_imported,           /* Items imported via -S            */
+    queued_favored,            /* Paths deemed favorable           */
+    queued_with_cov,           /* Paths with new coverage bytes    */
+    pending_not_fuzzed,        /* Queued but not done yet          */
+    pending_favored,           /* Pending favored paths            */
+    cur_skipped_paths,         /* Abandoned inputs in cur cycle    */
+    cur_depth,                 /* Current path depth               */
+    max_depth,                 /* Max path depth                   */
+    useless_at_start,          /* Number of useless starting paths */
+    var_byte_count,            /* Bitmap bytes with var behavior   */
+    current_entry,             /* Current queue entry ID           */
+    havoc_div;                 /* Cycle count divisor for havoc    */
 
     struct queue_entry *queue,         /* Fuzzing queue (linked list)      */
-            *queue_cur,                    /* Current offset within the queue  */
-            *queue_top,                    /* Top of the list                  */
-            *q_prev100;                    /* Previous 100 marker              */
+    *queue_cur,                    /* Current offset within the queue  */
+    *queue_top,                    /* Top of the list                  */
+    *q_prev100;                    /* Previous 100 marker              */
 
     s32 out_dir_fd;           /* FD of the lock file              */
 
@@ -132,7 +132,7 @@ EXP_ST struct
         test_name test[TEST_ARR_SIZE];/* Массив для смены работы afl      */  // ПРИДУМАЙ МЕНЯ!!!!
 
 EXP_ST u8 *paths,                      /* File with paths                  */
-        *out_file_sec;                 /* Second file to fuzz              */
+*out_file_sec;                 /* Second file to fuzz              */
 
 static u8 *out_files_names[TEST_ARR_SIZE];
 static s32 out_files_names_size = 0;
@@ -154,15 +154,15 @@ static s32 std_fd = STDOUT_FILENO;
    really makes no sense to haul them around as function parameters. */
 
 EXP_ST u8 *in_dir,                  /* Input directory with test cases  */
-        *out_file,                  /* File to fuzz, if any             */
-        *out_dir,                   /* Working & output directory       */
-        *sync_dir,                  /* Synchronization directory        */
-        *sync_id,                   /* Fuzzer ID                        */
-        *use_banner,                /* Display banner                   */
-        *in_bitmap,                 /* Input bitmap                     */
-        *doc_path,                  /* Path to documentation dir        */
-        *target_path,               /* Path to target binary            */
-        *orig_cmdline;              /* Original command line            */
+*out_file,                  /* File to fuzz, if any             */
+*out_dir,                   /* Working & output directory       */
+*sync_dir,                  /* Synchronization directory        */
+*sync_id,                   /* Fuzzer ID                        */
+*use_banner,                /* Display banner                   */
+*in_bitmap,                 /* Input bitmap                     */
+*doc_path,                  /* Path to documentation dir        */
+*target_path,               /* Path to target binary            */
+*orig_cmdline;              /* Original command line            */
 
 
 
@@ -174,98 +174,98 @@ EXP_ST u64 mem_limit = MEM_LIMIT;  /* Memory cap for child (MB)        */
 static u32 stats_update_freq = 1;  /* Stats update frequency (execs)   */
 
 EXP_ST u8 skip_deterministic,      /* Skip deterministic stages?       */
-        force_deterministic,       /* Force deterministic stages?      */
-        use_splicing,              /* Recombine input files?           */
-        dumb_mode,                 /* Run in non-instrumented mode?    */
-        score_changed,             /* Scoring for favorites changed?   */
-        kill_signal,               /* Signal that killed the child     */
-        resuming_fuzz,             /* Resuming an older fuzzing job?   */
-        timeout_given,             /* Specific timeout given?          */
-        not_on_tty,                /* stdout is not a tty              */
-        term_too_small,            /* terminal dimensions too small    */
-        uses_asan,                 /* Target uses ASAN?                */
-        no_forkserver,             /* Disable forkserver?              */
-        crash_mode,                /* Crash mode! Yeah!                */
-        in_place_resume,           /* Attempt in-place resume?         */
-        auto_changed,              /* Auto-generated tokens changed?   */
-        no_cpu_meter_red,          /* Feng shui on the status screen   */
-        no_arith,                  /* Skip most arithmetic ops         */
-        shuffle_queue,             /* Shuffle input queue?             */
-        bitmap_changed = 1,        /* Time to update bitmap?           */
-        qemu_mode,                 /* Running in QEMU mode?            */
-        skip_requested,            /* Skip request, via SIGUSR1        */
-        run_over10m,               /* Run time over 10 minutes?        */
-        persistent_mode,           /* Running in persistent mode?      */
-        deferred_mode,             /* Deferred forkserver mode?        */
-        fast_cal;                  /* Try to calibrate faster?         */
+force_deterministic,       /* Force deterministic stages?      */
+use_splicing,              /* Recombine input files?           */
+dumb_mode,                 /* Run in non-instrumented mode?    */
+score_changed,             /* Scoring for favorites changed?   */
+kill_signal,               /* Signal that killed the child     */
+resuming_fuzz,             /* Resuming an older fuzzing job?   */
+timeout_given,             /* Specific timeout given?          */
+not_on_tty,                /* stdout is not a tty              */
+term_too_small,            /* terminal dimensions too small    */
+uses_asan,                 /* Target uses ASAN?                */
+no_forkserver,             /* Disable forkserver?              */
+crash_mode,                /* Crash mode! Yeah!                */
+in_place_resume,           /* Attempt in-place resume?         */
+auto_changed,              /* Auto-generated tokens changed?   */
+no_cpu_meter_red,          /* Feng shui on the status screen   */
+no_arith,                  /* Skip most arithmetic ops         */
+shuffle_queue,             /* Shuffle input queue?             */
+bitmap_changed = 1,        /* Time to update bitmap?           */
+qemu_mode,                 /* Running in QEMU mode?            */
+skip_requested,            /* Skip request, via SIGUSR1        */
+run_over10m,               /* Run time over 10 minutes?        */
+persistent_mode,           /* Running in persistent mode?      */
+deferred_mode,             /* Deferred forkserver mode?        */
+fast_cal;                  /* Try to calibrate faster?         */
 
 static s32 out_fd,                 /* Persistent fd for out_file       */
-        dev_urandom_fd = -1,       /* Persistent fd for /dev/urandom   */
-        dev_null_fd = -1,          /* Persistent fd for /dev/null      */
-        fsrv_ctl_fd,               /* Fork server control pipe (write) */
-        fsrv_st_fd;                /* Fork server status pipe (read)   */
+dev_urandom_fd = -1,       /* Persistent fd for /dev/urandom   */
+dev_null_fd = -1,          /* Persistent fd for /dev/null      */
+fsrv_ctl_fd,               /* Fork server control pipe (write) */
+fsrv_st_fd;                /* Fork server status pipe (read)   */
 
 static s32 forksrv_pid,            /* PID of the fork server           */
-        child_pid = -1,            /* PID of the fuzzed program        */
-        out_dir_fd = -1;           /* FD of the lock file              */
+child_pid = -1,            /* PID of the fuzzed program        */
+out_dir_fd = -1;           /* FD of the lock file              */
 
 
 EXP_ST u8 *trace_bits;              /* SHM with instrumentation bitmap  */
 
 EXP_ST u8 virgin_bits[MAP_SIZE],    /* Regions yet untouched by fuzzing */
-        virgin_tmout[MAP_SIZE],     /* Bits we haven't seen in tmouts   */
-        virgin_crash[MAP_SIZE];     /* Bits we haven't seen in crashes  */
+virgin_tmout[MAP_SIZE],     /* Bits we haven't seen in tmouts   */
+virgin_crash[MAP_SIZE];     /* Bits we haven't seen in crashes  */
 
 static u8 var_bytes[MAP_SIZE];      /* Bytes that appear to be variable */
 
 static s32 shm_id;                  /* ID of the SHM region             */
 
 static volatile u8 stop_soon,       /* Ctrl-C pressed?                  */
-        clear_screen = 1,           /* Window resized?                  */
-        child_timed_out;            /* Traced process timed out?        */
+clear_screen = 1,           /* Window resized?                  */
+child_timed_out;            /* Traced process timed out?        */
 
 EXP_ST u32 queued_paths,           /* Total number of queued testcases */
-        queued_variable,           /* Testcases with variable behavior */
-        queued_at_start,           /* Total number of initial inputs   */
-        queued_discovered,         /* Items discovered during this run */
-        queued_imported,           /* Items imported via -S            */
-        queued_favored,            /* Paths deemed favorable           */
-        queued_with_cov,           /* Paths with new coverage bytes    */
-        pending_not_fuzzed,        /* Queued but not done yet          */
-        pending_favored,           /* Pending favored paths            */
-        cur_skipped_paths,         /* Abandoned inputs in cur cycle    */
-        cur_depth,                 /* Current path depth               */
-        max_depth,                 /* Max path depth                   */
-        useless_at_start,          /* Number of useless starting paths */
-        var_byte_count,            /* Bitmap bytes with var behavior   */
-        current_entry,             /* Current queue entry ID           */
-        havoc_div = 1;             /* Cycle count divisor for havoc    */
+queued_variable,           /* Testcases with variable behavior */
+queued_at_start,           /* Total number of initial inputs   */
+queued_discovered,         /* Items discovered during this run */
+queued_imported,           /* Items imported via -S            */
+queued_favored,            /* Paths deemed favorable           */
+queued_with_cov,           /* Paths with new coverage bytes    */
+pending_not_fuzzed,        /* Queued but not done yet          */
+pending_favored,           /* Pending favored paths            */
+cur_skipped_paths,         /* Abandoned inputs in cur cycle    */
+cur_depth,                 /* Current path depth               */
+max_depth,                 /* Max path depth                   */
+useless_at_start,          /* Number of useless starting paths */
+var_byte_count,            /* Bitmap bytes with var behavior   */
+current_entry,             /* Current queue entry ID           */
+havoc_div = 1;             /* Cycle count divisor for havoc    */
 
 EXP_ST u64 total_crashes,          /* Total number of crashes          */
-        unique_crashes,            /* Crashes with unique signatures   */
-        total_tmouts,              /* Total number of timeouts         */
-        unique_tmouts,             /* Timeouts with unique signatures  */
-        unique_hangs,              /* Hangs with unique signatures     */
-        total_execs,               /* Total execve() calls             */
-        slowest_exec_ms,           /* Slowest testcase non hang in ms  */
-        start_time,                /* Unix start time (ms)             */
-        last_path_time,            /* Time for most recent path (ms)   */
-        last_crash_time,           /* Time for most recent crash (ms)  */
-        last_hang_time,            /* Time for most recent hang (ms)   */
-        last_crash_execs,          /* Exec counter at last crash       */
-        queue_cycle,               /* Queue round counter              */
-        cycles_wo_finds,           /* Cycles without any new paths     */
-        trim_execs,                /* Execs done to trim input files   */
-        bytes_trim_in,             /* Bytes coming into the trimmer    */
-        bytes_trim_out,            /* Bytes coming outa the trimmer    */
-        blocks_eff_total,          /* Blocks subject to effector maps  */
-        blocks_eff_select;         /* Blocks selected as fuzzable      */
+unique_crashes,            /* Crashes with unique signatures   */
+total_tmouts,              /* Total number of timeouts         */
+unique_tmouts,             /* Timeouts with unique signatures  */
+unique_hangs,              /* Hangs with unique signatures     */
+total_execs,               /* Total execve() calls             */
+slowest_exec_ms,           /* Slowest testcase non hang in ms  */
+start_time,                /* Unix start time (ms)             */
+last_path_time,            /* Time for most recent path (ms)   */
+last_crash_time,           /* Time for most recent crash (ms)  */
+last_hang_time,            /* Time for most recent hang (ms)   */
+last_crash_execs,          /* Exec counter at last crash       */
+queue_cycle,               /* Queue round counter              */
+cycles_wo_finds,           /* Cycles without any new paths     */
+trim_execs,                /* Execs done to trim input files   */
+bytes_trim_in,             /* Bytes coming into the trimmer    */
+bytes_trim_out,            /* Bytes coming outa the trimmer    */
+blocks_eff_total,          /* Blocks subject to effector maps  */
+blocks_eff_select;         /* Blocks selected as fuzzable      */
 
 static u32 subseq_tmouts;          /* Number of timeouts in a row      */
 
 static u8 *stage_name = "init",    /* Name of the current fuzz stage   */
-        *stage_short,              /* Short stage name                 */
-        *syncing_party;            /* Currently syncing with...        */
+*stage_short,              /* Short stage name                 */
+*syncing_party;            /* Currently syncing with...        */
 
 static s32 stage_cur, stage_max;   /* Stage progression                */
 static s32 splicing_with = -1;     /* Splicing with which test case?   */
@@ -275,20 +275,20 @@ static u32 master_id, master_max;  /* Master instance job splitting    */
 static u32 syncing_case;           /* Syncing with case #...           */
 
 static s32 stage_cur_byte,         /* Byte offset of current stage op  */
-        stage_cur_val;             /* Value used for stage op          */
+stage_cur_val;             /* Value used for stage op          */
 
 static u8 stage_val_type;          /* Value type (STAGE_VAL_*)         */
 
 static u64 stage_finds[32],        /* Patterns found per fuzz stage    */
-        stage_cycles[32];          /* Execs per fuzz stage             */
+stage_cycles[32];          /* Execs per fuzz stage             */
 
 static u32 rand_cnt;               /* Random number counter            */
 
 static u64 total_cal_us,           /* Total calibration time (us)      */
-        total_cal_cycles;          /* Total calibration cycles         */
+total_cal_cycles;          /* Total calibration cycles         */
 
 static u64 total_bitmap_size,      /* Total bit count for all bitmaps  */
-        total_bitmap_entries;      /* Number of bitmaps counted        */
+total_bitmap_entries;      /* Number of bitmaps counted        */
 
 static s32 cpu_core_count;         /* CPU core count                   */
 
@@ -305,33 +305,33 @@ struct queue_entry {
     u8 *fname;                              /* File name for the test case      */
     u32 len;                                /* Input length                     */
     u8 cal_failed,                          /* Calibration failed?              */
-            trim_done,                      /* Trimmed?                         */
-            was_fuzzed,                     /* Had any fuzzing done yet?        */
-            passed_det,                     /* Deterministic stages passed?     */
-            has_new_cov,                    /* Triggers new coverage?           */
-            var_behavior,                   /* Variable behavior?               */
-            favored,                        /* Currently favored?               */
-            fs_redundant;                   /* Marked as redundant in the fs?   */
+    trim_done,                      /* Trimmed?                         */
+    was_fuzzed,                     /* Had any fuzzing done yet?        */
+    passed_det,                     /* Deterministic stages passed?     */
+    has_new_cov,                    /* Triggers new coverage?           */
+    var_behavior,                   /* Variable behavior?               */
+    favored,                        /* Currently favored?               */
+    fs_redundant;                   /* Marked as redundant in the fs?   */
 
     u32 bitmap_size,                        /* Number of bits set in bitmap     */
-            exec_cksum;                     /* Checksum of the execution trace  */
+    exec_cksum;                     /* Checksum of the execution trace  */
 
     u64 exec_us,                            /* Execution time (us)              */
-            handicap,                       /* Number of queue cycles behind    */
-            depth;                          /* Path depth                       */
+    handicap,                       /* Number of queue cycles behind    */
+    depth;                          /* Path depth                       */
 
     u8 *trace_mini;                         /* Trace bytes, if kept             */
     u32 tc_ref;                             /* Trace bytes ref count            */
 
     struct queue_entry *next,               /* Next element, if any             */
-            *next_100;                      /* 100 elements ahead               */
+    *next_100;                      /* 100 elements ahead               */
 
 };
 
 static struct queue_entry *queue,           /* Fuzzing queue (linked list)      */
-        *queue_cur,                         /* Current offset within the queue  */
-        *queue_top,                         /* Top of the list                  */
-        *q_prev100;                         /* Previous 100 marker              */
+*queue_cur,                         /* Current offset within the queue  */
+*queue_top,                         /* Top of the list                  */
+*q_prev100;                         /* Previous 100 marker              */
 
 static struct queue_entry *
         top_rated[MAP_SIZE];                /* Top entries for bitmap bytes     */  /***/
@@ -2050,7 +2050,7 @@ static void destroy_extras(void) {
 }
 
 static s32 log_pid(u8 *dir) {
-    u8 *fn_log = alloc_printf("%s/log", dir);
+    u8 *fn_log = alloc_printf("%s/stats", dir);
     s32 log_fd = open(fn_log, O_CREAT | O_RDWR, 0600);
     if (log_fd <= 0) FATAL("Не получилось открыть лог для - %s", dir);
     ck_free(fn_log);
@@ -2128,10 +2128,13 @@ static void change_cur_index(s32 current_index, s32 new_index) {
         } else log_fd = std_fd;
 
         if (dup2(log_fd, STDOUT_FILENO) < 0)
-            FATAL("Проблемы с dup2 errno %d", errno);
+            PFATAL("Проблемы с dup2");
         close(log_fd);
     }
+
+    LOG(" Change index:\ncur_index - %d new_index - %d\n New dir %s", current_index, new_index, out_dir);
     cur_index = new_index;
+
 }
 
 static u8 save_sec_file_if_interesting() {
@@ -2142,7 +2145,7 @@ static u8 save_sec_file_if_interesting() {
 
     if (len < 0) PFATAL("File '%s' not open", out_files_names[cur_index]);
     u8 *fn = ck_strdup(out_files_names[cur_index]);
-    WARNF("save_sec_file - %s", fn);
+    LOG("Save_sec_file - %s", fn);
     add_to_queue(fn, len, 0);
     return 1;
 }
@@ -2194,6 +2197,7 @@ static void save_sec_file(u8 *mem, u32 len) {
             if (out_files_names_size == TEST_ARR_SIZE)
                 WARNF("Найдено %d файлов, новые файлы обрабатываться не будут\n", NUM_OF_ADDITIONAL_FILES);
             out_files_names[new] = ck_strdup(out_file_sec);
+            LOG("Find new outfile - %s", out_files_names);
             add_new_out_file(mem, len, new);
         }
     }
@@ -2201,12 +2205,12 @@ static void save_sec_file(u8 *mem, u32 len) {
 }
 
 static s32 find_sec_file(u8 *mem, u32 len) {
-
     if (paths && opensnoop_pid) {
         s32 paths_len = (s32) lseek(paths_fd, 0, SEEK_END);
         lseek(paths_fd, 0, SEEK_SET);
 
         if (paths_len) {
+            LOG("Find sec file");
             u8 *temp = malloc(sizeof(u8) * (paths_len + 1));
             s32 size = read(paths_fd, temp, paths_len);
             s32 fn_len = 0;
@@ -2219,6 +2223,7 @@ static s32 find_sec_file(u8 *mem, u32 len) {
                     save_sec_file(mem, len);
                 } else fn_len++;
             }
+            LOG("\tFind sec file ok");
             free(temp);
         }
         return paths_len;
@@ -7262,8 +7267,8 @@ static u8 fuzz_one(char **argv) {
 
         new_buf = ck_alloc_nozero(target->len);
 
+        LOG("Read form - %s len - %d", target->fname, target -> len);
         ck_read(fd, new_buf, target->len, target->fname);
-
         close(fd);
 
         /* Find a suitable splicing location, somewhere between the first and
@@ -8436,10 +8441,10 @@ static void save_cmdline(u32 argc, char **argv) {
 }
 
 void log_in_file() {
-    u8* fn = alloc_printf("%s/log", out_dir);
-    s32 fd = open(fn, O_CREAT|O_WRONLY);
+    u8 *fn = alloc_printf("%s/log", out_dir);
+    s32 fd = open(fn, O_CREAT | O_WRONLY);
     if (fd < 0) WARNF("The log does not open fn - %s", fn);
-    else dup2(STDERR_FILENO, fd);
+    else dup2(fd, STDERR_FILENO);
     ck_free(fn);
     LOG("START OF THE LOG");
 }
@@ -8738,7 +8743,7 @@ int main(int argc, char **argv) {
 
     if (out_file) out_files_names[0] = strdup(out_file);
     else out_files_names[0] = "";
-        out_files_names_size = 1;
+    out_files_names_size = 1;
 
     check_binary(argv[optind]);
 
@@ -8779,7 +8784,7 @@ int main(int argc, char **argv) {
             arg[4] = NULL;
 
             opensnoop_dir = alloc_printf("%s/script.sh", opensnoop_dir);
-            ACTF("Opensnoop will start in the directory - %s \nWith name '%s'", opensnoop_dir, name);
+            LOG("Opensnoop will start in the directory - %s \nWith name '%s'", opensnoop_dir, name);
 
             s32 fd = dup(STDOUT_FILENO);
             dup2(paths_fd, STDOUT_FILENO);
@@ -8822,7 +8827,10 @@ int main(int argc, char **argv) {
             if (cur_index != 0) {
                 test[cur_index].last_condition = ck_copy(out_files_names[cur_index]);
                 s32 fd = open(out_files_names[cur_index], O_RDWR, 0600);
-                ck_write(fd, test[cur_index].first_condition, strlen(test[cur_index].first_condition),
+
+                s32 len = strlen(test[cur_index].first_condition);
+                LOG("Сopy to clipboard from file - %s len_file - %d ", out_files_names[cur_index], len);
+                ck_write(fd, test[cur_index].first_condition, len,
                          out_files_names[cur_index]);
                 close(fd);
             }
@@ -8830,10 +8838,13 @@ int main(int argc, char **argv) {
 
             if (last_file_index != 0) {
                 s32 fd = open(out_files_names[last_file_index], O_RDWR, 0600);
+                if (fd < 0) PFATAL("Unable to open '%s'", paths);
                 s32 len = strlen(test[last_file_index].last_condition);
+                LOG("Data recovery for %s len_file - %d", out_files_names[last_file_index], len);
                 ck_write(fd, test[last_file_index].last_condition, len,
                          out_files_names[last_file_index]);
                 ftruncate(fd, len);
+                LOG("Truncate and free test[%d].last_condition", last_file_index);
                 free(test[last_file_index].last_condition);
                 close(fd);
             }
@@ -8951,7 +8962,6 @@ int main(int argc, char **argv) {
     exit(0);
 
 }
-
 
 
 #endif /* !AFL_LIB */
