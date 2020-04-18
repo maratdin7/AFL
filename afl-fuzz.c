@@ -118,15 +118,22 @@ EXP_ST struct test_name {
 
     u8 *main_mem;
     s32 main_mem_len;
+    struct related_files_struct *related_files[100];  //динамический массив
 
-    s32 log_fd;
+    s32 number_of_related;
 
     u8 *last_condition;
-    s32 last_condition_len;
 
     u8 *first_condition;
 };
 
+struct related_files_struct {
+    u8 *name;
+    u32 len;
+};
+
+EXP_ST u8 *ignore_files[100];
+EXP_ST u32 num_of_ignore_files;
 
 EXP_ST struct
         test_name test[TEST_ARR_SIZE];/* Массив для смены работы afl      */  // ПРИДУМАЙ МЕНЯ!!!!
@@ -140,7 +147,7 @@ static s32 out_files_names_size = 0;
 //static u8 *main_mem;                  /* главный ввод передаваемый вместе с новым найденным файлом */
 //static s32 main_mem_len = 0;
 
-static s32 cur_index = 0;            /* Нынешний индекс                  */
+static u32 cur_index = 0;            /* Нынешний индекс                  */
 
 static s32 opensnoop_pid;            /* Opensnoop pid ВАУ                */
 
@@ -239,7 +246,8 @@ max_depth,                 /* Max path depth                   */
 useless_at_start,          /* Number of useless starting paths */
 var_byte_count,            /* Bitmap bytes with var behavior   */
 current_entry,             /* Current queue entry ID           */
-havoc_div = 1;             /* Cycle count divisor for havoc    */
+havoc_div = 1,             /* Cycle count divisor for havoc    */
+related_file;
 
 EXP_ST u64 total_crashes,          /* Total number of crashes          */
 unique_crashes,            /* Crashes with unique signatures   */
@@ -323,6 +331,7 @@ struct queue_entry {
     u8 *trace_mini;                         /* Trace bytes, if kept             */
     u32 tc_ref;                             /* Trace bytes ref count            */
 
+    u32 related_file;           /* Index of the related file */
     struct queue_entry *next,               /* Next element, if any             */
     *next_100;                      /* 100 elements ahead               */
 
@@ -2077,7 +2086,7 @@ static void change_cur_index(s32 current_index, s32 new_index) {
     test[current_index].max_depth = max_depth;
     test[current_index].useless_at_start = useless_at_start;
     test[current_index].var_byte_count = var_byte_count;
-    test[current_index].current_entry = current_index;
+    test[current_index].current_entry = current_entry;
     test[current_index].havoc_div = havoc_div;
 
     test[current_index].queue = queue;
@@ -2150,6 +2159,15 @@ static u8 save_sec_file_if_interesting() {
     return 1;
 }
 
+static void save_related_file(u8 *fn, u32 len, u32 index) {
+    u32 number = test[index].number_of_related;
+    test[index].related_files[number] = malloc(sizeof(struct related_files_struct));
+    test[index].related_files[number]->name = ck_strdup(fn);
+    test[index].related_files[number]->len = len;
+    test[index].number_of_related++;
+    LOG("Save related file - %s for file - %d", fn, index);
+}
+
 static void new_dir_preparation(u8 *mem, u32 len) {
     u8 *fn_mem = alloc_printf("%s/mem", out_dir);
     s32 fd_mem = open(fn_mem, O_CREAT | O_RDWR, 0600);
@@ -2158,6 +2176,7 @@ static void new_dir_preparation(u8 *mem, u32 len) {
 
     ck_write(fd_mem, mem, len, fn_mem);
     close(fd_mem);
+    save_related_file(fn_mem, len, cur_index);
     ck_free(fn_mem);
 
     test[cur_index].last_condition = ck_copy(out_files_names[cur_index]);
@@ -2172,6 +2191,8 @@ static void add_new_out_file(u8 *mem, u32 len, s32 new) {
 
     havoc_div = 1;
     out_dir_fd = -1;
+
+    test[cur_index].number_of_related = 0;
     new_dir_preparation(mem, len);
 
     test[cur_index].main_mem = ck_strdup(mem);
@@ -2183,25 +2204,71 @@ static void add_new_out_file(u8 *mem, u32 len, s32 new) {
     change_cur_index(cur_index, last_index);
 }
 
-static void save_sec_file(u8 *mem, u32 len) {
+EXP_ST u32 file_filter(u8 *fn) {
+
+    for (int i = 0; i < num_of_ignore_files; i++) {
+        if (!strcmp(fn, ignore_files[i])) return 0;
+    }
+    u8 *find_slash = strchr(fn + 1, '/');
+    u32 ans;
+    if (find_slash == NULL && strchr(fn, '/') == NULL) return 1;
+    u8 *dir = ck_memdup_str(fn, find_slash - fn);
+    if (!strcmp(dir, "/home")) ans = 1;
+    else ans = 0;
+    ck_free(dir);
+    return ans;
+}
+
+EXP_ST u32 reading_fnames(u8 *fn, u8 **arr) {
+    s32 fd = open(fn, O_RDWR);
+    if (fd < 0)
+        return 0;
+    u32 i = 0;
+    s32 len = lseek(fd, SEEK_SET, SEEK_END);
+    lseek(fd, SEEK_SET, SEEK_SET);
+    u8 *mem = ck_alloc(sizeof(u8) * (len));
+    ck_read(fd, mem, len, fn);
+
+    close(fd);
+    u32 last_len = 0;
+    u32 new_len = 0;
+    u8 *tm = mem != NULL ? strchr(mem, '\n') : NULL;
+    while (tm != NULL) {
+        new_len = tm - mem - last_len;
+        if (mem[last_len] == '\n') i--;
+        else arr[i] = ck_memdup_str(mem + last_len, new_len);
+        last_len += new_len;
+        last_len++;
+        i++;
+        tm = strchr(mem + last_len, '\n');
+    }
+    ck_free(mem);
+    return i;
+}
+
+
+EXP_ST void save_sec_file(u8 *mem, u32 len) {
     s32 new;
     if (out_files_names_size < TEST_ARR_SIZE) {
         for (new = 0; new < out_files_names_size; new++) {
             if (!strcmp(out_files_names[new], out_file_sec)) {
+                related_file = new;
                 new = -1;
+
                 break;
             }
         }
         if (new != -1) {
             out_files_names_size++;
+            out_files_names[new] = ck_strdup(out_file_sec);
+            related_file = new;
+            LOG("Find new outfile - %s", out_file_sec);
             if (out_files_names_size == TEST_ARR_SIZE)
                 WARNF("Найдено %d файлов, новые файлы обрабатываться не будут\n", NUM_OF_ADDITIONAL_FILES);
-            out_files_names[new] = ck_strdup(out_file_sec);
-            LOG("Find new outfile - %s", out_files_names);
             add_new_out_file(mem, len, new);
         }
     }
-    free(out_file_sec);
+    ck_free(out_file_sec);
 }
 
 static s32 find_sec_file(u8 *mem, u32 len) {
@@ -2210,8 +2277,26 @@ static s32 find_sec_file(u8 *mem, u32 len) {
         lseek(paths_fd, 0, SEEK_SET);
 
         if (paths_len) {
-            LOG("Find sec file");
-            u8 *temp = malloc(sizeof(u8) * (paths_len + 1));
+            u8 *buf = ck_alloc(sizeof(u8) * (paths_len));
+            ck_read(paths_fd, buf, paths_len, paths);
+            buf[paths_len - 1] = '\0';
+            u32 last_len = 0;
+            u32 new_len = 0;
+            u8 *tm = buf != NULL ? strchr(buf, '\n') : NULL;
+            while (tm != NULL) {
+                new_len = tm - buf - last_len;
+                if (buf[last_len] != '\n') {
+                    out_file_sec = ck_memdup_str(buf + last_len, new_len);
+                    if (file_filter(out_file_sec)) save_sec_file(mem, len); // тут где-то баг
+                    else
+                        ck_free(out_file_sec);
+                }
+                last_len += new_len;
+                last_len++;
+                tm = strchr(buf + last_len, '\n');
+            }
+            ck_free(buf);
+            /*u8 *temp = malloc(sizeof(u8) * (paths_len + 1));
             s32 size = read(paths_fd, temp, paths_len);
             s32 fn_len = 0;
             for (s32 i = 0; i < size; i++) {
@@ -2223,8 +2308,8 @@ static s32 find_sec_file(u8 *mem, u32 len) {
                     save_sec_file(mem, len);
                 } else fn_len++;
             }
-            LOG("\tFind sec file ok");
             free(temp);
+            //LOG("\tFind sec file - ok");*/
         }
         return paths_len;
     }
@@ -2768,29 +2853,6 @@ static void write_to_testcase(void *mem, u32 len) {
 
 
     ck_write(fd, mem, len, out_file);
-
-    if (cur_index > 0) {
-        s32 fd_main = out_fd;
-
-        if (test[0].out_file) {
-
-            unlink(test[0].out_file); /* Ignore errors. */
-
-            fd_main = open(test[0].out_file, O_WRONLY | O_CREAT | O_EXCL, 0600);
-
-            if (fd_main < 0) PFATAL("Unable to create '%s'", test[1].out_file);
-
-        } else lseek(fd_main, 0, SEEK_SET);
-
-        ck_write(fd_main, test[cur_index].main_mem, test[cur_index].main_mem_len, test[0].out_file);
-
-        if (!test[0].out_file) {
-
-            if (ftruncate(fd_main, len)) PFATAL("ftruncate() failed");
-            lseek(fd_main, 0, SEEK_SET);
-
-        } else close(fd_main);
-    }
 
     if (!out_file) {
 
@@ -3473,10 +3535,14 @@ static u8 save_if_interesting(char **argv, void *mem, u32 len, u8 fault) {
 
         queue_top->exec_cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
 
-        /* Try to calibrate inline; this also calls update_bitmap_score() when
+        /* Try t calibrate inline; this also calls update_bitmap_score() when
        successful. */
 
         res = calibrate_case(argv, queue_top, mem, queue_cycle - 1, 0);
+
+        if (related_file) save_related_file(fn, len, related_file);
+
+        related_file = 0;
 
         if (res == FAULT_ERROR)
             FATAL("Unable to execute target application");
@@ -5250,12 +5316,40 @@ static u8 trim_case(char **argv, struct queue_entry *q, u8 *in_buf) {
 
 }
 
+static void write_to_multiple_testcase(u8 *out_buf, u32 len, u8 *main_buf, u32 main_buf_len) {
+
+    if (main_buf_len != 0) {
+
+        s32 fd_main = out_fd;
+
+        if (test[0].out_file) {
+
+            unlink(test[0].out_file); /* Ignore errors. */
+
+            fd_main = open(test[0].out_file, O_WRONLY | O_CREAT | O_EXCL, 0600);
+
+            if (fd_main < 0) PFATAL("Unable to create '%s'", test[1].out_file);
+
+        } else lseek(fd_main, 0, SEEK_SET);
+
+        ck_write(fd_main, main_buf, main_buf_len, test[0].out_file);
+
+        if (!test[0].out_file) {
+
+            if (ftruncate(fd_main, main_buf_len)) PFATAL("ftruncate() failed");
+            lseek(fd_main, 0, SEEK_SET);
+
+        } else close(fd_main);
+    }
+    write_to_testcase(out_buf, len);
+
+}
 
 /* Write a modified test case, run program, process results. Handle
    error conditions, returning 1 if it's time to bail out. This is
    a helper function for fuzz_one(). */
 
-EXP_ST u8 common_fuzz_stuff(char **argv, u8 *out_buf, u32 len) {
+EXP_ST u8 common_fuzz_stuff_1(char **argv, u8 *out_buf, u32 len, u8 *main_buf, u32 main_buf_len) {  //  Назови нормально
 
     u8 fault;
 
@@ -5266,7 +5360,7 @@ EXP_ST u8 common_fuzz_stuff(char **argv, u8 *out_buf, u32 len) {
 
     }
 
-    write_to_testcase(out_buf, len);
+    write_to_multiple_testcase(out_buf, len, main_buf, main_buf_len);
 
     if (ftruncate(paths_fd, 0)) PFATAL("ftruncate() failed");
     lseek(paths_fd, 0, SEEK_SET);
@@ -5307,7 +5401,24 @@ EXP_ST u8 common_fuzz_stuff(char **argv, u8 *out_buf, u32 len) {
         show_stats();
 
     return 0;
+}
 
+EXP_ST u8 common_fuzz_stuff(char **argv, u8 *out_buf, u32 len) {
+
+    u8 *main_buf;
+    u32 main_buf_len = 0;
+    u32 ret = 1;
+    if (cur_index != 0) {
+
+        for (u32 i = 0; i < test[cur_index].number_of_related; i++) {
+            main_buf = ck_copy(test[cur_index].related_files[i]->name);  //есть длинна
+            main_buf_len = test[cur_index].related_files[i]->len;
+            ret *= common_fuzz_stuff_1(argv, out_buf, len, main_buf, main_buf_len);
+            free(main_buf);
+        }
+    } else ret *= common_fuzz_stuff_1(argv, out_buf, len, main_buf, main_buf_len);
+
+    return ret;
 }
 
 
@@ -7267,7 +7378,7 @@ static u8 fuzz_one(char **argv) {
 
         new_buf = ck_alloc_nozero(target->len);
 
-        LOG("Read form - %s len - %d", target->fname, target -> len);
+        //LOG("Read form - %s len - %d", target->fname, target->len);
         ck_read(fd, new_buf, target->len, target->fname);
         close(fd);
 
@@ -8795,6 +8906,19 @@ int main(int argc, char **argv) {
         }
         exit(1);
     }
+
+    /*uid_t ruid;
+    uid_t euid;
+    uid_t suid;
+    getresuid(&ruid,&euid,&suid);
+    LOG("ruid - %d\teuid - %d\tsuid - %d", ruid,euid,suid);
+    if (setuid(1010) < 0) PFATAL("Rights cannot be reduced");
+    else LOG("Rights have been successfully demoted");
+*/
+    u8 *fn_ignore_files = alloc_printf("%s/../../ignore", out_dir);
+    num_of_ignore_files = reading_fnames(fn_ignore_files, ignore_files);
+    if (num_of_ignore_files)
+        OKF("find %d ignore files", num_of_ignore_files);
 
     cull_queue();
 

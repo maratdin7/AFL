@@ -328,14 +328,14 @@ static inline u8* DFL_ck_memdup_str(u8* mem, u32 size) {
   ret += ALLOC_OFF_HEAD;
 
   ALLOC_C1(ret) = ALLOC_MAGIC_C1;
-  ALLOC_S(ret)  = size;
+  ALLOC_S(ret)  = size + 1;
   ALLOC_C2(ret) = ALLOC_MAGIC_C2;
 
   memcpy(ret, mem, size);
   ret[size] = 0;
 
   return ret;
-
+  //return memcpy(ret, mem, size);
 }
 
 static inline u8* DFL_ck_copy(u8* fn) {
