@@ -112,7 +112,9 @@ EXP_ST struct test_name {
     struct queue_entry *queue,         /* Fuzzing queue (linked list)      */
     *queue_cur,                    /* Current offset within the queue  */
     *queue_top,                    /* Top of the list                  */
-    *q_prev100;                    /* Previous 100 marker              */
+    *q_prev100,                    /* Previous 100 marker              */
+
+    **top_rated; //интересные queue для этого файла
 
     s32 out_dir_fd;           /* FD of the lock file              */
 
@@ -130,13 +132,14 @@ EXP_ST struct test_name {
 struct related_files_struct {
     u8 *name;
     u32 len;
+    u32 index;
 };
 
 EXP_ST u8 *ignore_files[100];
 EXP_ST u32 num_of_ignore_files;
 
 EXP_ST struct
-        test_name test[TEST_ARR_SIZE];/* Массив для смены работы afl      */  // ПРИДУМАЙ МЕНЯ!!!!
+        test_name test[TEST_ARR_SIZE];/* Массив для смены работы afl      */  // ПРИДУМАЙ!!!!
 
 EXP_ST u8 *paths,                      /* File with paths                  */
 *out_file_sec;                 /* Second file to fuzz              */
@@ -247,7 +250,7 @@ useless_at_start,          /* Number of useless starting paths */
 var_byte_count,            /* Bitmap bytes with var behavior   */
 current_entry,             /* Current queue entry ID           */
 havoc_div = 1,             /* Cycle count divisor for havoc    */
-related_file;
+related_file = 0;
 
 EXP_ST u64 total_crashes,          /* Total number of crashes          */
 unique_crashes,            /* Crashes with unique signatures   */
@@ -342,9 +345,10 @@ static struct queue_entry *queue,           /* Fuzzing queue (linked list)      
 *queue_top,                         /* Top of the list                  */
 *q_prev100;                         /* Previous 100 marker              */
 
-static struct queue_entry *
-        top_rated[MAP_SIZE];                /* Top entries for bitmap bytes     */  /***/
+static struct queue_entry/* Top entries for bitmap bytes     */  /***/
+*top_rated_buf[MAP_SIZE];
 
+struct queue_entry **top_rated = top_rated_buf;
 struct extra_data {
     u8 *data;                               /* Dictionary token data            */
     u32 len;                                /* Dictionary token length          */
@@ -1333,14 +1337,12 @@ static void update_bitmap_score(struct queue_entry *q) {
         if (trace_bits[i]) {
 
             if (top_rated[i]) {
-
                 /* Faster-executing or smaller test cases are favored. */
 
                 if (fav_factor > top_rated[i]->exec_us * top_rated[i]->len) continue;
 
                 /* Looks like we're going to win. Decrease ref count for the
             previous winner, discard its trace_bits[] if necessary. */
-
                 if (!--top_rated[i]->tc_ref) {
                     ck_free(top_rated[i]->trace_mini);
                     top_rated[i]->trace_mini = 0;
@@ -1359,7 +1361,6 @@ static void update_bitmap_score(struct queue_entry *q) {
             }
 
             score_changed = 1;
-
         }
 
 }
@@ -2058,265 +2059,6 @@ static void destroy_extras(void) {
 
 }
 
-static s32 log_pid(u8 *dir) {
-    u8 *fn_log = alloc_printf("%s/stats", dir);
-    s32 log_fd = open(fn_log, O_CREAT | O_RDWR, 0600);
-    if (log_fd <= 0) FATAL("Не получилось открыть лог для - %s", dir);
-    ck_free(fn_log);
-    return log_fd;
-}
-
-static void setup_dirs_fds();
-
-static void change_cur_index(s32 current_index, s32 new_index) {
-    test[current_index].out_file = out_file;
-    test[current_index].out_dir = out_dir;
-
-    test[current_index].queued_paths = queued_paths;
-    test[current_index].queued_variable = queued_variable;
-    test[current_index].queued_at_start = queued_at_start;
-    test[current_index].queued_discovered = queued_discovered;
-    test[current_index].queued_imported = queued_imported;
-    test[current_index].queued_favored = queued_favored;
-    test[current_index].queued_with_cov = queued_with_cov;
-    test[current_index].pending_not_fuzzed = pending_not_fuzzed;
-    test[current_index].pending_favored = pending_favored;
-    test[current_index].cur_skipped_paths = cur_skipped_paths;
-    test[current_index].cur_depth = cur_depth;
-    test[current_index].max_depth = max_depth;
-    test[current_index].useless_at_start = useless_at_start;
-    test[current_index].var_byte_count = var_byte_count;
-    test[current_index].current_entry = current_entry;
-    test[current_index].havoc_div = havoc_div;
-
-    test[current_index].queue = queue;
-    test[current_index].queue_cur = queue_cur;
-    test[current_index].queue_top = queue_top;
-    test[current_index].q_prev100 = q_prev100;
-
-    test[current_index].out_dir_fd = out_dir_fd;
-
-    out_file = test[new_index].out_file;
-    if (!out_file && new_index != 0)
-        out_file = ck_strdup(out_files_names[new_index]);
-
-    out_dir = test[new_index].out_dir;
-    if (!out_dir && new_index != 0) {
-        out_dir = alloc_printf("%s/%d/", main_out_dir, new_index);
-        setup_dirs_fds();
-    }
-    queued_paths = test[new_index].queued_paths;
-    queued_variable = test[new_index].queued_variable;
-    queued_at_start = test[new_index].queued_at_start;
-    queued_discovered = test[new_index].queued_discovered;
-    queued_imported = test[new_index].queued_imported;
-    queued_favored = test[new_index].queued_favored;
-    queued_with_cov = test[new_index].queued_with_cov;
-    pending_not_fuzzed = test[new_index].pending_not_fuzzed;
-    pending_favored = test[new_index].pending_favored;
-    cur_skipped_paths = test[new_index].cur_skipped_paths;
-    cur_depth = test[new_index].cur_depth;
-    max_depth = test[new_index].max_depth;
-    useless_at_start = test[new_index].useless_at_start;
-    var_byte_count = test[new_index].var_byte_count;
-    current_entry = test[new_index].current_entry;
-    havoc_div = test[new_index].havoc_div;
-
-    queue = test[new_index].queue;
-    queue_cur = test[new_index].queue_cur;
-    queue_top = test[new_index].queue_top;
-    q_prev100 = test[new_index].q_prev100;
-
-    out_dir_fd = test[new_index].out_dir_fd;
-
-    s32 log_fd;
-    if (current_index != new_index) {
-        if (current_index == 0) {
-            log_fd = log_pid(out_dir);
-            std_fd = dup(STDOUT_FILENO);
-        } else log_fd = std_fd;
-
-        if (dup2(log_fd, STDOUT_FILENO) < 0)
-            PFATAL("Проблемы с dup2");
-        close(log_fd);
-    }
-
-    LOG(" Change index:\ncur_index - %d new_index - %d\n New dir %s", current_index, new_index, out_dir);
-    cur_index = new_index;
-
-}
-
-static u8 save_sec_file_if_interesting() {
-    s32 tmp_fd = open(out_files_names[cur_index], O_RDWR, 0600);
-    s32 len = lseek(tmp_fd, 0, SEEK_END);
-    lseek(tmp_fd, 0, SEEK_SET);
-    close(tmp_fd);
-
-    if (len < 0) PFATAL("File '%s' not open", out_files_names[cur_index]);
-    u8 *fn = ck_strdup(out_files_names[cur_index]);
-    LOG("Save_sec_file - %s", fn);
-    add_to_queue(fn, len, 0);
-    return 1;
-}
-
-static void save_related_file(u8 *fn, u32 len, u32 index) {
-    u32 number = test[index].number_of_related;
-    test[index].related_files[number] = malloc(sizeof(struct related_files_struct));
-    test[index].related_files[number]->name = ck_strdup(fn);
-    test[index].related_files[number]->len = len;
-    test[index].number_of_related++;
-    LOG("Save related file - %s for file - %d", fn, index);
-}
-
-static void new_dir_preparation(u8 *mem, u32 len) {
-    u8 *fn_mem = alloc_printf("%s/mem", out_dir);
-    s32 fd_mem = open(fn_mem, O_CREAT | O_RDWR, 0600);
-
-    if (fd_mem < 0) PFATAL("Unable to create '%s'", fn_mem);
-
-    ck_write(fd_mem, mem, len, fn_mem);
-    close(fd_mem);
-    save_related_file(fn_mem, len, cur_index);
-    ck_free(fn_mem);
-
-    test[cur_index].last_condition = ck_copy(out_files_names[cur_index]);
-    test[cur_index].first_condition = ck_copy(out_files_names[cur_index]);
-}
-
-static void pivot_inputs(void);
-
-static void add_new_out_file(u8 *mem, u32 len, s32 new) {
-    s32 last_index = cur_index;
-    change_cur_index(last_index, new);
-
-    havoc_div = 1;
-    out_dir_fd = -1;
-
-    test[cur_index].number_of_related = 0;
-    new_dir_preparation(mem, len);
-
-    test[cur_index].main_mem = ck_strdup(mem);
-    test[cur_index].main_mem_len = len;
-
-    queued_discovered += save_sec_file_if_interesting();
-    pivot_inputs();
-
-    change_cur_index(cur_index, last_index);
-}
-
-EXP_ST u32 file_filter(u8 *fn) {
-
-    for (int i = 0; i < num_of_ignore_files; i++) {
-        if (!strcmp(fn, ignore_files[i])) return 0;
-    }
-    u8 *find_slash = strchr(fn + 1, '/');
-    u32 ans;
-    if (find_slash == NULL && strchr(fn, '/') == NULL) return 1;
-    u8 *dir = ck_memdup_str(fn, find_slash - fn);
-    if (!strcmp(dir, "/home")) ans = 1;
-    else ans = 0;
-    ck_free(dir);
-    return ans;
-}
-
-EXP_ST u32 reading_fnames(u8 *fn, u8 **arr) {
-    s32 fd = open(fn, O_RDWR);
-    if (fd < 0)
-        return 0;
-    u32 i = 0;
-    s32 len = lseek(fd, SEEK_SET, SEEK_END);
-    lseek(fd, SEEK_SET, SEEK_SET);
-    u8 *mem = ck_alloc(sizeof(u8) * (len));
-    ck_read(fd, mem, len, fn);
-
-    close(fd);
-    u32 last_len = 0;
-    u32 new_len = 0;
-    u8 *tm = mem != NULL ? strchr(mem, '\n') : NULL;
-    while (tm != NULL) {
-        new_len = tm - mem - last_len;
-        if (mem[last_len] == '\n') i--;
-        else arr[i] = ck_memdup_str(mem + last_len, new_len);
-        last_len += new_len;
-        last_len++;
-        i++;
-        tm = strchr(mem + last_len, '\n');
-    }
-    ck_free(mem);
-    return i;
-}
-
-
-EXP_ST void save_sec_file(u8 *mem, u32 len) {
-    s32 new;
-    if (out_files_names_size < TEST_ARR_SIZE) {
-        for (new = 0; new < out_files_names_size; new++) {
-            if (!strcmp(out_files_names[new], out_file_sec)) {
-                related_file = new;
-                new = -1;
-
-                break;
-            }
-        }
-        if (new != -1) {
-            out_files_names_size++;
-            out_files_names[new] = ck_strdup(out_file_sec);
-            related_file = new;
-            LOG("Find new outfile - %s", out_file_sec);
-            if (out_files_names_size == TEST_ARR_SIZE)
-                WARNF("Найдено %d файлов, новые файлы обрабатываться не будут\n", NUM_OF_ADDITIONAL_FILES);
-            add_new_out_file(mem, len, new);
-        }
-    }
-    ck_free(out_file_sec);
-}
-
-static s32 find_sec_file(u8 *mem, u32 len) {
-    if (paths && opensnoop_pid) {
-        s32 paths_len = (s32) lseek(paths_fd, 0, SEEK_END);
-        lseek(paths_fd, 0, SEEK_SET);
-
-        if (paths_len) {
-            u8 *buf = ck_alloc(sizeof(u8) * (paths_len));
-            ck_read(paths_fd, buf, paths_len, paths);
-            buf[paths_len - 1] = '\0';
-            u32 last_len = 0;
-            u32 new_len = 0;
-            u8 *tm = buf != NULL ? strchr(buf, '\n') : NULL;
-            while (tm != NULL) {
-                new_len = tm - buf - last_len;
-                if (buf[last_len] != '\n') {
-                    out_file_sec = ck_memdup_str(buf + last_len, new_len);
-                    if (file_filter(out_file_sec)) save_sec_file(mem, len); // тут где-то баг
-                    else
-                        ck_free(out_file_sec);
-                }
-                last_len += new_len;
-                last_len++;
-                tm = strchr(buf + last_len, '\n');
-            }
-            ck_free(buf);
-            /*u8 *temp = malloc(sizeof(u8) * (paths_len + 1));
-            s32 size = read(paths_fd, temp, paths_len);
-            s32 fn_len = 0;
-            for (s32 i = 0; i < size; i++) {
-                if (temp[i] == '\n') {
-                    fn_len++;
-                    out_file_sec = malloc(sizeof(u8) * fn_len);
-                    snprintf(out_file_sec, fn_len, temp + i - fn_len + 1);
-                    fn_len = 0;
-                    save_sec_file(mem, len);
-                } else fn_len++;
-            }
-            free(temp);
-            //LOG("\tFind sec file - ok");*/
-        }
-        return paths_len;
-    }
-    return -1;
-}
-
-
 /* Spin up fork server (instrumented mode only). The idea is explained here:
 
    http://lcamtuf.blogspot.com/2014/10/fuzzing-binaries-without-execve.html
@@ -2837,30 +2579,44 @@ static u8 run_target(char **argv, u32 timeout) {
    is unlinked and a new one is created. Otherwise, out_fd is rewound and
    truncated. */
 
-static void write_to_testcase(void *mem, u32 len) {
+static void write_to_testcase(void *out_buf, u32 len, u8 *file) {
 
     s32 fd = out_fd;
 
-    if (out_file) {
+    if (file) {
 
-        unlink(out_file); /* Ignore errors. */
+        unlink(file); /* Ignore errors. */
 
-        fd = open(out_file, O_WRONLY | O_CREAT | O_EXCL, 0600);
+        fd = open(file, O_WRONLY | O_CREAT | O_EXCL, 0600);
 
-        if (fd < 0) PFATAL("Unable to create '%s'", out_file);
+        if (fd < 0) PFATAL("Unable to create '%s'", file);
 
     } else lseek(fd, 0, SEEK_SET);
 
+    ck_write(fd, out_buf, len, file);
 
-    ck_write(fd, mem, len, out_file);
-
-    if (!out_file) {
+    if (!file) {
 
         if (ftruncate(fd, len)) PFATAL("ftruncate() failed");
         lseek(fd, 0, SEEK_SET);
 
     } else close(fd);
 
+}
+
+static void write_to_multiple_testcase(u8 *out_buf, u32 len, struct related_files_struct *dataset, u32 dataset_size) {
+    if (cur_index == 1) LOG("Я в write_to_multiple_testcase с - %s", dataset[0].name);
+
+    write_to_testcase(out_buf, len, out_file);
+
+    for (u32 i = 0; i < dataset_size; i++) {
+        struct related_files_struct c = dataset[i];
+        u8 *related_buf = ck_copy(c.name);
+        u32 related_buf_len = c.len;
+        write_to_testcase(related_buf, related_buf_len, test[c.index].out_file);
+        free(related_buf);
+    }
+    if (cur_index == 1) LOG("ВЫШЕЛ");
 }
 
 /* The same, but with an adjustable gap. Used for trimming. */
@@ -2899,8 +2655,13 @@ static void show_stats(void);
    to warn about flaky or otherwise problematic test cases early on; and when
    new paths are discovered to detect variable behavior and so on. */
 
-static u8 calibrate_case(char **argv, struct queue_entry *q, u8 *use_mem,
-                         u32 handicap, u8 from_queue) {
+static u8 calibrate_case(char **argv,
+                         struct queue_entry *q,
+                         u8 *use_mem,
+                         struct related_files_struct *dataset,
+                         u32 dataset_size,
+                         u32 handicap,
+                         u8 from_queue) {
 
     static u8 first_trace[MAP_SIZE];
 
@@ -2941,8 +2702,7 @@ static u8 calibrate_case(char **argv, struct queue_entry *q, u8 *use_mem,
         u32 cksum;
 
         if (!first_run && !(stage_cur % stats_update_freq)) show_stats();
-
-        write_to_testcase(use_mem, q->len);
+        write_to_multiple_testcase(use_mem, q->len, dataset, dataset_size);
         fault = run_target(argv, use_tmout);
 
         /*     stop_soon is set by the handler for Ctrl+C. When it's pressed,
@@ -3089,7 +2849,8 @@ static void perform_dry_run(char **argv) {
 
         close(fd);
 
-        res = calibrate_case(argv, q, use_mem, 0, 1);
+        struct related_files_struct *empty;
+        res = calibrate_case(argv, q, use_mem, empty, 0, 0, 1);
         ck_free(use_mem);
 
         if (stop_soon) return;
@@ -3494,11 +3255,26 @@ static void write_crash_readme(void) {
 }
 
 
+static void save_related_file(u8 *fn, u32 len, u32 index, u32 current_index) {
+    u32 number = test[index].number_of_related;
+    test[index].related_files[number] = malloc(sizeof(struct related_files_struct *));
+    test[index].related_files[number]->name = ck_strdup(fn);
+    test[index].related_files[number]->len = len;
+    test[index].related_files[number]->index = current_index;
+    test[index].number_of_related++;
+    LOG("Save related file - %s for file - %d", fn, index);
+}
+
 /* Check if the result of an execve() during routine fuzzing is interesting,
    save or queue the input test case for further analysis if so. Returns 1 if
    entry is saved, 0 otherwise. */
 
-static u8 save_if_interesting(char **argv, void *mem, u32 len, u8 fault) {
+static u8 save_if_interesting(char **argv,
+                              void *mem,
+                              u32 len,
+                              struct related_files_struct *dataset,
+                              u32 dataset_size,
+                              u8 fault) {
 
     u8 *fn = "";
     u8 hnb;
@@ -3538,9 +3314,10 @@ static u8 save_if_interesting(char **argv, void *mem, u32 len, u8 fault) {
         /* Try t calibrate inline; this also calls update_bitmap_score() when
        successful. */
 
-        res = calibrate_case(argv, queue_top, mem, queue_cycle - 1, 0);
+        res = calibrate_case(argv, queue_top, mem, dataset, dataset_size, queue_cycle - 1, 0);
 
-        if (related_file) save_related_file(fn, len, related_file);
+        if (related_file && related_file != cur_index)
+            save_related_file(fn, len, related_file, cur_index);
 
         related_file = 0;
 
@@ -3590,7 +3367,7 @@ static u8 save_if_interesting(char **argv, void *mem, u32 len, u8 fault) {
             if (exec_tmout < hang_tmout) {
 
                 u8 new_fault;
-                write_to_testcase(mem, len);
+                write_to_multiple_testcase(mem, len, dataset, dataset_size);
                 new_fault = run_target(argv, hang_tmout);
 
                 /* A corner case that one user reported bumping into: increasing the
@@ -5192,6 +4969,249 @@ static u32 next_p2(u32 val) {
 }
 
 
+static s32 log_pid(u8 *dir) {
+    u8 *fn_log = alloc_printf("%s/stats", dir);
+    s32 log_fd = open(fn_log, O_CREAT | O_RDWR, 0600);
+    if (log_fd <= 0) FATAL("Не получилось открыть лог для - %s", dir);
+    ck_free(fn_log);
+    return log_fd;
+}
+
+static void setup_dirs_fds();
+
+static void change_cur_index(s32 current_index, s32 new_index) {
+    test[current_index].out_file = out_file;
+    test[current_index].out_dir = out_dir;
+
+    test[current_index].queued_paths = queued_paths;
+    test[current_index].queued_variable = queued_variable;
+    test[current_index].queued_at_start = queued_at_start;
+    test[current_index].queued_discovered = queued_discovered;
+    test[current_index].queued_imported = queued_imported;
+    test[current_index].queued_favored = queued_favored;
+    test[current_index].queued_with_cov = queued_with_cov;
+    test[current_index].pending_not_fuzzed = pending_not_fuzzed;
+    test[current_index].pending_favored = pending_favored;
+    test[current_index].cur_skipped_paths = cur_skipped_paths;
+    test[current_index].cur_depth = cur_depth;
+    test[current_index].max_depth = max_depth;
+    test[current_index].useless_at_start = useless_at_start;
+    test[current_index].var_byte_count = var_byte_count;
+    test[current_index].current_entry = current_entry;
+    test[current_index].havoc_div = havoc_div;
+
+    test[current_index].queue = queue;
+    test[current_index].queue_cur = queue_cur;
+    test[current_index].queue_top = queue_top;
+    test[current_index].q_prev100 = q_prev100;
+
+    test[current_index].out_dir_fd = out_dir_fd;
+
+    test[current_index].top_rated = top_rated;
+
+
+    out_file = test[new_index].out_file;
+    if (!out_file && new_index != 0)
+        out_file = ck_strdup(out_files_names[new_index]);
+
+    out_dir = test[new_index].out_dir;
+    if (!out_dir && new_index != 0) {
+        out_dir = alloc_printf("%s/%d/", main_out_dir, new_index);
+        setup_dirs_fds();
+    }
+    queued_paths = test[new_index].queued_paths;
+    queued_variable = test[new_index].queued_variable;
+    queued_at_start = test[new_index].queued_at_start;
+    queued_discovered = test[new_index].queued_discovered;
+    queued_imported = test[new_index].queued_imported;
+    queued_favored = test[new_index].queued_favored;
+    queued_with_cov = test[new_index].queued_with_cov;
+    pending_not_fuzzed = test[new_index].pending_not_fuzzed;
+    pending_favored = test[new_index].pending_favored;
+    cur_skipped_paths = test[new_index].cur_skipped_paths;
+    cur_depth = test[new_index].cur_depth;
+    max_depth = test[new_index].max_depth;
+    useless_at_start = test[new_index].useless_at_start;
+    var_byte_count = test[new_index].var_byte_count;
+    current_entry = test[new_index].current_entry;
+    havoc_div = test[new_index].havoc_div;
+
+    queue = test[new_index].queue;
+    queue_cur = test[new_index].queue_cur;
+    queue_top = test[new_index].queue_top;
+    q_prev100 = test[new_index].q_prev100;
+
+    out_dir_fd = test[new_index].out_dir_fd;
+
+    if (!test[new_index].top_rated)
+        test[new_index].top_rated = calloc(MAP_SIZE, sizeof(struct queue_entry *));
+
+    top_rated = test[new_index].top_rated;
+
+    s32 log_fd;
+    if (current_index != new_index) {
+        if (current_index == 0) {
+            log_fd = log_pid(out_dir);
+            std_fd = dup(STDOUT_FILENO);
+        } else log_fd = std_fd;
+
+        if (dup2(log_fd, STDOUT_FILENO) < 0)
+            PFATAL("Проблемы с dup2");
+        close(log_fd);
+    }
+
+    LOG(" Change index:\ncur_index - %d new_index - %d\n New dir %s", current_index, new_index, out_dir);
+    cur_index = new_index;
+
+}
+
+static u8 save_sec_file_if_interesting() {
+    s32 tmp_fd = open(out_files_names[cur_index], O_RDWR, 0600);
+    s32 len = lseek(tmp_fd, 0, SEEK_END);
+    lseek(tmp_fd, 0, SEEK_SET);
+    close(tmp_fd);
+
+    if (len < 0) PFATAL("File '%s' not open", out_files_names[cur_index]);
+    u8 *fn = ck_strdup(out_files_names[cur_index]);
+    LOG("Save_sec_file - %s", fn);
+    add_to_queue(fn, len, 0);
+    return 1;
+}
+
+static void new_dir_preparation(u8 *fn, u8 *mem, u32 len) {
+    s32 fd = open(fn, O_CREAT | O_RDWR, 0600);
+
+    if (fd < 0) PFATAL("Unable to create '%s'", fn);
+
+    ck_write(fd, mem, len, fn);
+    close(fd);
+
+    test[cur_index].last_condition = ck_copy(out_files_names[cur_index]);
+    test[cur_index].first_condition = ck_copy(out_files_names[cur_index]);
+}
+
+static void add_new_out_file(char **argv, u8 *mem, u32 len, s32 new) {
+    s32 last_index = cur_index;
+    change_cur_index(last_index, new);
+
+    havoc_div = 1;
+    out_dir_fd = -1;
+
+    test[cur_index].number_of_related = 0;
+    u8 *fn = alloc_printf("%s/mem", out_dir);
+    new_dir_preparation(fn, mem, len);
+    save_related_file(fn, len, cur_index, last_index);
+
+    queued_discovered += save_sec_file_if_interesting();
+    pivot_inputs();
+
+    struct related_files_struct dataset[2] = {{fn, len, last_index}};
+    u32 dataset_size = 1;
+    u8 *out_buf = ck_copy(out_files_names[cur_index]);
+    calibrate_case(argv, queue, out_buf, dataset, dataset_size, 0, 1);
+    cull_queue();
+    ck_free(fn);
+    change_cur_index(cur_index, last_index);
+}
+
+EXP_ST u32 file_filter(u8 *fn) {
+
+    for (int i = 0; i < num_of_ignore_files; i++) {
+        if (!strcmp(fn, ignore_files[i])) return 0;
+    }
+    u8 *find_slash = strchr(fn + 1, '/');
+    u32 ans;
+    if (find_slash == NULL && strchr(fn, '/') == NULL) return 1;
+    u8 *dir = ck_memdup_str(fn, find_slash - fn);
+    if (!strcmp(dir, "/home")) ans = 1;
+    else ans = 0;
+    ck_free(dir);
+    return ans;
+}
+
+EXP_ST u32 reading_fnames(u8 *fn, u8 **arr) {
+    s32 fd = open(fn, O_RDWR);
+    if (fd < 0)
+        return 0;
+    u32 i = 0;
+    s32 len = lseek(fd, SEEK_SET, SEEK_END);
+    lseek(fd, SEEK_SET, SEEK_SET);
+    u8 *mem = ck_alloc(sizeof(u8) * (len));
+    ck_read(fd, mem, len, fn);
+
+    close(fd);
+    u32 last_len = 0;
+    u32 new_len = 0;
+    u8 *tm = mem != NULL ? strchr(mem, '\n') : NULL;
+    while (tm != NULL) {
+        new_len = tm - mem - last_len;
+        if (mem[last_len] == '\n') i--;
+        else arr[i] = ck_memdup_str(mem + last_len, new_len);
+        last_len += new_len;
+        last_len++;
+        i++;
+        tm = strchr(mem + last_len, '\n');
+    }
+    ck_free(mem);
+    return i;
+}
+
+
+EXP_ST void save_sec_file(char **argv, u8 *mem, u32 len) {
+    s32 new;
+    if (out_files_names_size < TEST_ARR_SIZE) {
+        for (new = 0; new < out_files_names_size; new++) {
+            if (!strcmp(out_files_names[new], out_file_sec)) {
+                related_file = new;
+                new = -1;
+
+                break;
+            }
+        }
+        if (new != -1) {
+            out_files_names_size++;
+            out_files_names[new] = ck_strdup(out_file_sec);
+            related_file = new;
+            LOG("Find new outfile - %s", out_file_sec);
+            if (out_files_names_size == TEST_ARR_SIZE)
+                WARNF("Найдено %d файлов, новые файлы обрабатываться не будут\n", NUM_OF_ADDITIONAL_FILES);
+            add_new_out_file(argv, mem, len, new);
+        }
+    }
+    ck_free(out_file_sec);
+}
+
+static s32 find_sec_file(char **argv, u8 *mem, u32 len) {
+    if (paths && opensnoop_pid) {
+        s32 paths_len = (s32) lseek(paths_fd, 0, SEEK_END);
+        lseek(paths_fd, 0, SEEK_SET);
+
+        if (paths_len) {
+            u8 *buf = ck_alloc(sizeof(u8) * (paths_len));
+            ck_read(paths_fd, buf, paths_len, paths);
+            buf[paths_len - 1] = '\0';
+            u32 last_len = 0;
+            u32 new_len = 0;
+            u8 *tm = buf != NULL ? strchr(buf, '\n') : NULL;
+            while (tm != NULL) {
+                new_len = tm - buf - last_len;
+                if (buf[last_len] != '\n') {
+                    out_file_sec = ck_memdup_str(buf + last_len, new_len);
+                    if (file_filter(out_file_sec)) save_sec_file(argv, mem, len); // тут где-то баг
+                    else
+                        ck_free(out_file_sec);
+                }
+                last_len += new_len;
+                last_len++;
+                tm = strchr(buf + last_len, '\n');
+            }
+            ck_free(buf);
+        }
+        return paths_len;
+    }
+    return -1;
+}
+
 /* Trim all new test cases to save cycles when doing deterministic checks. The
    trimmer uses power-of-two increments somewhere between 1/16 and 1/1024 of
    file size, to keep the stage short and sweet. */
@@ -5316,40 +5336,15 @@ static u8 trim_case(char **argv, struct queue_entry *q, u8 *in_buf) {
 
 }
 
-static void write_to_multiple_testcase(u8 *out_buf, u32 len, u8 *main_buf, u32 main_buf_len) {
-
-    if (main_buf_len != 0) {
-
-        s32 fd_main = out_fd;
-
-        if (test[0].out_file) {
-
-            unlink(test[0].out_file); /* Ignore errors. */
-
-            fd_main = open(test[0].out_file, O_WRONLY | O_CREAT | O_EXCL, 0600);
-
-            if (fd_main < 0) PFATAL("Unable to create '%s'", test[1].out_file);
-
-        } else lseek(fd_main, 0, SEEK_SET);
-
-        ck_write(fd_main, main_buf, main_buf_len, test[0].out_file);
-
-        if (!test[0].out_file) {
-
-            if (ftruncate(fd_main, main_buf_len)) PFATAL("ftruncate() failed");
-            lseek(fd_main, 0, SEEK_SET);
-
-        } else close(fd_main);
-    }
-    write_to_testcase(out_buf, len);
-
-}
-
 /* Write a modified test case, run program, process results. Handle
    error conditions, returning 1 if it's time to bail out. This is
    a helper function for fuzz_one(). */
 
-EXP_ST u8 common_fuzz_stuff_1(char **argv, u8 *out_buf, u32 len, u8 *main_buf, u32 main_buf_len) {  //  Назови нормально
+EXP_ST u8 common_fuzz_stuff_1(char **argv,
+                              u8 *out_buf,
+                              u32 len,
+                              struct related_files_struct *dataset,
+                              u32 dataset_size) {
 
     u8 fault;
 
@@ -5360,14 +5355,13 @@ EXP_ST u8 common_fuzz_stuff_1(char **argv, u8 *out_buf, u32 len, u8 *main_buf, u
 
     }
 
-    write_to_multiple_testcase(out_buf, len, main_buf, main_buf_len);
-
+    write_to_multiple_testcase(out_buf, len, dataset, dataset_size);
     if (ftruncate(paths_fd, 0)) PFATAL("ftruncate() failed");
     lseek(paths_fd, 0, SEEK_SET);
 
     fault = run_target(argv, exec_tmout);
 
-    s32 new_out_file = find_sec_file(out_buf, len);
+    s32 new_out_file = find_sec_file(argv, out_buf, len);
 
     if (new_out_file == -1) SAYF("Opensnoop does not started");
 
@@ -5395,7 +5389,7 @@ EXP_ST u8 common_fuzz_stuff_1(char **argv, u8 *out_buf, u32 len, u8 *main_buf, u
 
     /* This handles FAULT_ERROR for us: */
 
-    queued_discovered += save_if_interesting(argv, out_buf, len, fault);
+    queued_discovered += save_if_interesting(argv, out_buf, len, dataset, dataset_size, fault);
 
     if (!(stage_cur % stats_update_freq) || stage_cur + 1 == stage_max)
         show_stats();
@@ -5405,19 +5399,19 @@ EXP_ST u8 common_fuzz_stuff_1(char **argv, u8 *out_buf, u32 len, u8 *main_buf, u
 
 EXP_ST u8 common_fuzz_stuff(char **argv, u8 *out_buf, u32 len) {
 
-    u8 *main_buf;
-    u32 main_buf_len = 0;
+    struct related_files_struct dataset[2];
+    u32 dataset_size = 0;
+
     u32 ret = 1;
     if (cur_index != 0) {
 
         for (u32 i = 0; i < test[cur_index].number_of_related; i++) {
-            main_buf = ck_copy(test[cur_index].related_files[i]->name);  //есть длинна
-            main_buf_len = test[cur_index].related_files[i]->len;
-            ret *= common_fuzz_stuff_1(argv, out_buf, len, main_buf, main_buf_len);
-            free(main_buf);
+            dataset[0] = test[cur_index].related_files[i][0];
+            dataset_size = 1;
+            ret *= common_fuzz_stuff_1(argv, out_buf, len, dataset, dataset_size);
         }
-    } else ret *= common_fuzz_stuff_1(argv, out_buf, len, main_buf, main_buf_len);
-
+    } else ret *= common_fuzz_stuff_1(argv, out_buf, len, dataset, dataset_size);
+LOG("common_fuzz_stuff - Finish");
     return ret;
 }
 
@@ -5840,11 +5834,28 @@ static u8 fuzz_one(char **argv) {
 
     if (queue_cur->cal_failed) {
 
-        u8 res = FAULT_TMOUT;
+        u32 res = FAULT_TMOUT;
 
         if (queue_cur->cal_failed < CAL_CHANCES) {
 
-            res = calibrate_case(argv, queue_cur, in_buf, queue_cycle - 1, 0);
+            struct related_files_struct dataset[2];
+            u32 dataset_size = 0;
+
+            if (cur_index != 0) {
+
+                for (u32 ii = 0; ii < test[cur_index].number_of_related; ii++) {
+                    dataset[0] = test[cur_index].related_files[ii][0];
+                    dataset_size = 1;
+                    LOG("начинаю CALIBRATION " );
+                    u32 tm = calibrate_case(argv, queue_cur, in_buf, dataset, dataset_size, queue_cycle - 1, 0);
+                    if (tm == FAULT_ERROR) FATAL("Unable to execute target application");
+                    if (tm == FAULT_CRASH) {
+                        res = tm;
+                        break;
+                    }
+                    res *= tm;
+                }
+            } else res = calibrate_case(argv, queue_cur, in_buf, dataset, dataset_size, queue_cycle - 1, 0);
 
             if (res == FAULT_ERROR)
                 FATAL("Unable to execute target application");
@@ -7378,7 +7389,7 @@ static u8 fuzz_one(char **argv) {
 
         new_buf = ck_alloc_nozero(target->len);
 
-        //LOG("Read form - %s len - %d", target->fname, target->len);
+        LOG("Read form - %s len - %d", target->fname, target->len);
         ck_read(fd, new_buf, target->len, target->fname);
         close(fd);
 
@@ -7544,14 +7555,19 @@ static void sync_fuzzers(char **argv) {
                 /* See what happens. We rely on save_if_interesting() to catch major
            errors and save the test case. */
 
-                write_to_testcase(mem, st.st_size);
+                write_to_testcase(mem, st.st_size, out_file);
 
                 fault = run_target(argv, exec_tmout);
 
                 if (stop_soon) return;
 
                 syncing_party = sd_ent->d_name;
-                queued_imported += save_if_interesting(argv, mem, st.st_size, fault);
+
+                if (!cur_index ) {
+                    struct related_files_struct *c = NULL;
+                    u32 c_size = 0;
+                    queued_imported += save_if_interesting(argv, mem, st.st_size, c, 0, fault);
+                }
                 syncing_party = 0;
 
                 munmap(mem, st.st_size);

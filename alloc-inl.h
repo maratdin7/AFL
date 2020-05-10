@@ -335,15 +335,14 @@ static inline u8* DFL_ck_memdup_str(u8* mem, u32 size) {
   ret[size] = 0;
 
   return ret;
-  //return memcpy(ret, mem, size);
 }
 
 static inline u8* DFL_ck_copy(u8* fn) {
     s32 fd = open(fn, O_RDWR, 0600);
     if (fd < 0) PFATAL("Unable to open '%s'", fn);
 
-    s32 len= lseek(fd, 0, SEEK_END);
-    lseek(fd, 0, SEEK_SET);
+    s32 len = lseek(fd, SEEK_SET, SEEK_END);
+    lseek(fd, SEEK_SET, SEEK_SET);
 
     u8* ret = malloc(len * sizeof(u8));
 
