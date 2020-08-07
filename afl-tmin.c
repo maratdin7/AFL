@@ -509,7 +509,7 @@ next_del_blksize:
     /* If we have processed at least one full block (initially, prev_del == 1),
        and we did so without deleting the previous one, and we aren't at the
        very end of the buffer (tail_len > 0), and the current block is the same
-       as the previous one... skip this step as a no-op. */
+       as the previous one... prev_skip this step as a no-op. */
 
     if (!prev_del && tail_len && !memcmp(in_data + del_pos - del_len,
         in_data + del_pos, del_len)) {

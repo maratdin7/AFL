@@ -179,7 +179,7 @@
 #define USE_AUTO_EXTRAS     50
 #define MAX_AUTO_EXTRAS     (USE_AUTO_EXTRAS * 10)
 
-/* Scaling factor for the effector map used to skip some of the more
+/* Scaling factor for the effector map used to prev_skip some of the more
    expensive deterministic steps. The actual divisor is set to
    2^EFF_MAP_SCALE2 bytes: */
 
@@ -337,8 +337,8 @@
 #define  CTEST_CORE_TRG_MS  1000
 #define  CTEST_BUSY_CYCLES  (10 * 1000 * 1000)
 
-#define  NUM_OF_ADDITIONAL_FILES 10 /*number of additional files*/
-#define  TEST_ARR_SIZE (NUM_OF_ADDITIONAL_FILES+1)
+#define  MAX_ADDITIONAL_FLS 10 /*number of additional files*/
+#define  MAX_OUT_FNS (MAX_ADDITIONAL_FLS+1)
 
 /* Uncomment this to use inferior block-coverage-based instrumentation. Note
    that you need to recompile the target binary for this to have any effect: */
@@ -357,6 +357,10 @@
 
 // #define IGNORE_FINDS
 
+#define MIN_COVERAGE
+//#define MAX_COVERAGE
+//#define RANDOM_CHOISE
 
+#define EPS 0.000001
 
 #endif /* ! _HAVE_CONFIG_H */

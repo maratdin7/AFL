@@ -27,7 +27,7 @@
 
    Note that it's an explicit non-goal to instrument hand-written assembly,
    be it in separate .s files or in __asm__ blocks. The only aspiration this
-   utility has right now is to be able to skip them gracefully and allow the
+   utility has right now is to be able to prev_skip them gracefully and allow the
    compilation process to continue.
 
    That said, see experimental/clang_asm_normalize/ for a solution that may
@@ -89,7 +89,7 @@ static u8   use_64bit = 0;
 #endif /* ^__x86_64__ */
 
 
-/* Examine and modify parameters to pass to 'as'. Note that the file name
+/* Examine and modify parameters to pass to 'as'. Note that the file fname
    is always the last parameter passed by GCC, so we exploit this property
    to keep the code simple. */
 
@@ -329,7 +329,7 @@ static void add_instrumentation(void) {
     if (strstr(line, ".intel_syntax")) skip_intel = 1;
     if (strstr(line, ".att_syntax")) skip_intel = 0;
 
-    /* Detect and skip ad-hoc __asm__ blocks, likewise skipping them. */
+    /* Detect and prev_skip ad-hoc __asm__ blocks, likewise skipping them. */
 
     if (line[0] == '#' || line[1] == '#') {
 
@@ -527,7 +527,7 @@ int main(int argc, char** argv) {
 
   setenv(AS_LOOP_ENV_VAR, "1", 1);
 
-  /* When compiling with ASAN, we don't have a particularly elegant way to skip
+  /* When compiling with ASAN, we don't have a particularly elegant way to prev_skip
      ASAN-specific branches. But we can probabilistically compensate for
      that... */
 

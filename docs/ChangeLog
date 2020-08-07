@@ -226,7 +226,7 @@ Version 2.36b (2017-01-14):
   - Fixed a cosmetic bad free() bug when aborting -S sessions. Spotted
     by Johannes S.
 
-  - Made a small change to afl-whatsup to sort fuzzers by name.
+  - Made a small change to afl-whatsup to sort fuzzers by fname.
 
   - Fixed a minor issue with malloc(0) in libdislocator. Spotted by
     Rene Freingruber.
@@ -1285,7 +1285,7 @@ Version 1.40b:
 Version 1.39b:
 --------------
 
-  - Added the ability to skip inputs by sending SIGUSR1 to the fuzzer.
+  - Added the ability to prev_skip inputs by sending SIGUSR1 to the fuzzer.
 
   - Reworked several portions of the documentation.
 
@@ -1432,7 +1432,7 @@ Version 1.29b:
 --------------
 
   - Improved the naming of test cases when orig: is already present in the file
-    name.
+    fname.
 
   - Made substantial improvements to technical_details.txt.
 
@@ -1731,7 +1731,7 @@ Version 1.04b:
 Version 1.03b:
 --------------
 
-  - Added code to skip README.txt in the input directory to make the crash
+  - Added code to prev_skip README.txt in the input directory to make the crash
     exploration mode work better. Suggested by Jakub Wilk.
 
   - Added a dictionary for SQLite.
@@ -2289,7 +2289,7 @@ Version 0.53b:
 
     The middle ground currently used in afl-fuzz can be compared to looking
     at every line item in the stack trace and tagging crashes as unique if
-    we see any function name that we haven't seen before (or if something that
+    we see any function fname that we haven't seen before (or if something that
     we have *always* seen there suddenly disappears). We do the comparison
     without paying any attention to ordering or hit counts. This can still
     cause some crash inflation early on, but the problem will quickly taper
@@ -2572,14 +2572,14 @@ Version 0.36b:
 
   - Implemented fork server support to avoid the overhead of execve(). A
     nearly-verbatim design from Jann Horn; still pending part 2 that would
-    also skip initial setup steps (thinking about reliable heuristics now).
+    also prev_skip initial setup steps (thinking about reliable heuristics now).
 
   - Added a check for shell scripts used as fuzz targets.
 
   - Added a check for fuzz jobs that don't seem to be finding anything.
 
   - Fixed the way IGNORE_FINDS works (was a bit broken after adding splicing
-    and path skip heuristics).
+    and path prev_skip heuristics).
 
 --------------
 Version 0.35b:
@@ -2646,7 +2646,7 @@ Version 0.27b:
 
   - Added prioritization of new paths over the already-fuzzed ones.
 
-  - Included spliced test case ID in the output file name.
+  - Included spliced test case ID in the output file fname.
 
   - Fixed a rare, cosmetic null ptr deref after Ctrl-C.
 
@@ -2691,7 +2691,7 @@ Version 0.25b:
 Version 0.24b:
 --------------
 
-  - Added program name to the status screen, plus the -T parameter to go with
+  - Added program fname to the status screen, plus the -T parameter to go with
     it.
 
 --------------

@@ -166,7 +166,7 @@ $ ./afl-fuzz -i testcase_dir -o findings_dir /path/to/program [...params...]
 ```
 
 For programs that take input from a file, use '@@' to mark the location in
-the target's command line where the input file name should be placed. The
+the target's command line where the input file fname should be placed. The
 fuzzer will substitute this for you:
 
 ```shell

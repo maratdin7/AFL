@@ -169,7 +169,7 @@
 
 #ifdef MESSAGES_TO_STDOUT
 #  define SAYF(x...)    printf(x)
-#  define SAY(x...) fprintf(stderr, x)
+#  define SAY(x...) fprintf(stderr, x); fprintf(stdout, x)
 #else
 #  define SAYF(x...)    fprintf(stderr, x)
 #  define SAY(x...) SAYF(x)
@@ -258,9 +258,9 @@
   } while (0)
 
 #define LOG(x...) do {\
-    SAY("%u:", __LINE__);\
-    SAY(x);\
-    SAY("\n");\
+    fprintf(stderr, "%u:", __LINE__);\
+    fprintf(stderr, x);\
+    fprintf(stderr, "\n");\
 } while (0)
 
 #endif /* ! _HAVE_DEBUG_H */

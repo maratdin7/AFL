@@ -153,8 +153,8 @@ static void edit_params(u32 argc, char** argv) {
 
 #ifdef __APPLE__
 
-    if (!strcmp(name, "afl-g++")) cc_params[0] = getenv("AFL_CXX");
-    else if (!strcmp(name, "afl-gcj")) cc_params[0] = getenv("AFL_GCJ");
+    if (!strcmp(fname, "afl-g++")) cc_params[0] = getenv("AFL_CXX");
+    else if (!strcmp(fname, "afl-gcj")) cc_params[0] = getenv("AFL_GCJ");
     else cc_params[0] = getenv("AFL_CC");
 
     if (!cc_params[0]) {

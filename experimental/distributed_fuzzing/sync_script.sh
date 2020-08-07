@@ -28,7 +28,7 @@
 #   without a password (authorized_keys or otherwise).
 #
 # - Make sure that every fuzzer is running with -o pointing to SYNC_DIR and -S
-#   that consists of its local host name, followed by an underscore, and then
+#   that consists of its local host fname, followed by an underscore, and then
 #   by some host-local fuzzer ID.
 #
 

@@ -337,17 +337,30 @@ static inline u8* DFL_ck_memdup_str(u8* mem, u32 size) {
   return ret;
 }
 
-static inline u8* DFL_ck_copy(u8* fn) {
-    s32 fd = open(fn, O_RDWR, 0600);
+static inline u32 DFL_ck_len(s32 fd) {
+
+    s32 l = lseek(fd, 0, SEEK_END);
+    lseek(fd, 0, SEEK_SET);
+
+    if (l < 0) PFATAL("Unable to run lseek");
+
+    u32 len = (u32) l;
+
+    return len;
+}
+
+static inline u8* DFL_ck_copy(u8* fn, u32 *len) {
+
+    s32 fd = open(fn, O_RDONLY);
+
     if (fd < 0) PFATAL("Unable to open '%s'", fn);
 
-    s32 len = lseek(fd, SEEK_SET, SEEK_END);
-    lseek(fd, SEEK_SET, SEEK_SET);
+    *len = DFL_ck_len(fd);
+    u8* ret = DFL_ck_alloc((*len) * sizeof(u8));
+    ck_read(fd, ret, *len, fn);
 
-    u8* ret = malloc(len * sizeof(u8));
-
-    ck_read(fd, ret, len, fn);
     close(fd);
+
     return ret;
 }
 
@@ -367,6 +380,7 @@ static inline u8* DFL_ck_copy(u8* fn) {
 
 #define alloc_report()
 
+#define ck_len            DFL_ck_len
 #define ck_copy           DFL_ck_copy
 
 #else

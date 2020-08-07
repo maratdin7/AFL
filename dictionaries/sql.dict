@@ -5,7 +5,7 @@
 # Modeled based on SQLite documentation, contains some number of SQLite
 # extensions. Other dialects of SQL may benefit from customized dictionaries.
 #
-# If you append @1 to the file name when loading this dictionary, afl-fuzz
+# If you append @1 to the file fname when loading this dictionary, afl-fuzz
 # will also additionally load a selection of pragma keywords that are very
 # specific to SQLite (and are probably less interesting from the security
 # standpoint, because they are usually not allowed in non-privileged

@@ -35,7 +35,7 @@ how to hit the ground running:
      /path/to/tested/program [...program's cmdline...]
 
    If the program takes input from a file, you can put @@ in the program's
-   command line; AFL will put an auto-generated file name in there for you.
+   command line; AFL will put an auto-generated file fname in there for you.
 
 6) Investigate anything shown in red in the fuzzer UI by promptly consulting
    docs/status_screen.txt.

@@ -123,7 +123,7 @@ checks or alter some of the more exotic semantics of the tool:
     don't want AFL to spend too much time classifying that stuff and just 
     rapidly put all timeouts in that bin.
 
-  - AFL_NO_ARITH causes AFL to skip most of the deterministic arithmetics.
+  - AFL_NO_ARITH causes AFL to prev_skip most of the deterministic arithmetics.
     This can be useful to speed up the fuzzing of text-based file formats.
 
   - AFL_SHUFFLE_QUEUE randomly reorders the input queue on startup. Requested
@@ -174,7 +174,7 @@ checks or alter some of the more exotic semantics of the tool:
 
 The QEMU wrapper used to instrument binary-only code supports several settings:
 
-  - It is possible to set AFL_INST_RATIO to skip the instrumentation on some
+  - It is possible to set AFL_INST_RATIO to prev_skip the instrumentation on some
     of the basic blocks, which can be useful when dealing with very complex
     binaries.
 

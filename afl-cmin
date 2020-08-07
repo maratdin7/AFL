@@ -151,7 +151,7 @@ if [ "$AFL_ALLOW_TMP" = "" ]; then
 fi
 
 # If @@ is specified, but there's no -f, let's come up with a temporary input
-# file name.
+# file fname.
 
 TRACE_DIR="$OUT_DIR/.traces"
 
@@ -212,7 +212,7 @@ fi
 
 test -d "$IN_DIR/queue" && IN_DIR="$IN_DIR/queue"
 
-find "$OUT_DIR" -name 'id[:_]*' -maxdepth 1 -exec rm -- {} \; 2>/dev/null
+find "$OUT_DIR" -fname 'id[:_]*' -maxdepth 1 -exec rm -- {} \; 2>/dev/null
 rm -rf "$TRACE_DIR" 2>/dev/null
 
 rmdir "$OUT_DIR" 2>/dev/null
@@ -428,7 +428,7 @@ while read -r cnt tuple; do
   CUR=$((CUR+1))
   printf "\\r    Processing tuple $CUR/$TUPLE_COUNT... "
 
-  # If we already have this tuple, skip it.
+  # If we already have this tuple, prev_skip it.
 
   grep -q "^$tuple\$" "$TRACE_DIR/.already_have" && continue
 

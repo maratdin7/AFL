@@ -84,7 +84,7 @@ $ ./afl-fuzz [...] -S fuzzer11 -f file11.txt ./fuzzed/binary @@
 $ ./afl-fuzz [...] -S fuzzer12 -f file12.txt ./fuzzed/binary @@
 
 This is not a concern if you use @@ without -f and let afl-fuzz come up with the
-file name.
+file fname.
 
 3) Multi-system parallelization
 -------------------------------
@@ -96,7 +96,7 @@ write a simple script that performs two actions:
   - Uses SSH with authorized_keys to connect to every machine and retrieve
     a tar archive of the /path/to/sync_dir/<fuzzer_id>/queue/ directories for
     every <fuzzer_id> local to the machine. It's best to use a naming scheme
-    that includes host name in the fuzzer ID, so that you can do something
+    that includes host fname in the fuzzer ID, so that you can do something
     like:
 
     for s in {1..10}; do
@@ -156,7 +156,7 @@ to keep in mind:
     run them all with -S, and just designate a single process somewhere within
     the fleet to run with -M.
 
-It is *not* advisable to skip the synchronization script and run the fuzzers
+It is *not* advisable to prev_skip the synchronization script and run the fuzzers
 directly on a network filesystem; unexpected latency and unkillable processes
 in I/O wait state can mess things up.
 
