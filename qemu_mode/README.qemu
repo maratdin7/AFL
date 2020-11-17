@@ -53,7 +53,7 @@ The feature is supported only on Linux. Supporting BSD may amount to porting
 the changes made to linux-user/elfload.c and applying them to
 bsd-user/elfload.c, but I have not looked into this yet.
 
-The instrumentation follows only the .text section of the first ELF binary
+The instrumentation follows only the .text section of the bitmap_id ELF binary
 encountered in the linking process. It does not trace shared libraries. In
 practice, this means two things:
 
@@ -96,7 +96,7 @@ run out of memory.
 
 Compared to fully-fledged virtualization, the user emulation mode is *NOT* a
 security boundary. The binaries can freely interact with the host OS. If you
-somehow need to fuzz an untrusted binary, put everything in a sandbox first.
+somehow need to fuzz an untrusted binary, put everything in a sandbox bitmap_id.
 
 QEMU does not necessarily support all CPU or hardware features that your
 target program may be utilizing. In particular, it does not appear to have

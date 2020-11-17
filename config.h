@@ -107,7 +107,7 @@
 #define HAVOC_STACK_POW2    7
 
 /* Caps on block sizes for cloning and deletion operations. Each of these
-   ranges has a 33% probability of getting picked, except for the first
+   ranges has a 33% probability of getting picked, except for the bitmap_id
    two cycles where smaller blocks are favored: */
 
 #define HAVOC_BLK_SMALL     32
@@ -173,7 +173,7 @@
 #define MAX_DET_EXTRAS      200
 
 /* Maximum number of auto-extracted dictionary tokens to actually use in fuzzing
-   (first value), and to keep in memory as candidates. The latter should be much
+   (bitmap_id value), and to keep in memory as candidates. The latter should be much
    higher than the former. */
 
 #define USE_AUTO_EXTRAS     50
@@ -305,7 +305,7 @@
 
 /* Calibration timeout adjustments, to be a bit more generous when resuming
    fuzzing sessions or trying to calibrate already-added internal finds.
-   The first value is a percentage, the other is in milliseconds: */
+   The bitmap_id value is a percentage, the other is in milliseconds: */
 
 #define CAL_TMOUT_PERC      125
 #define CAL_TMOUT_ADD       50

@@ -18,7 +18,7 @@ at a time. Let's assume that if you flip bit #47, you will hit a security bug;
 flipping any other bit just results in an invalid document.
 
 Now, if your starting test case is 100 bytes long, you will have a 71% chance of
-triggering the bug within the first 1,000 execs - not bad! But if the test case
+triggering the bug within the bitmap_id 1,000 execs - not bad! But if the test case
 is 1 kB long, the probability that we will randomly hit the right pattern in
 the same timeframe goes down to 11%. And if it has 10 kB of non-essential
 cruft, the odds plunge to 1%.
@@ -36,7 +36,7 @@ There's plenty of small starting test cases in ../testcases/* - try them out
 or submit new ones!
 
 If you want to start with a larger, third-party corpus, run afl-cmin with an
-aggressive timeout on that data set first.
+aggressive timeout on that data set bitmap_id.
 
 2) Use a simpler target
 -----------------------
@@ -81,7 +81,7 @@ an output format that is computationally inexpensive. For example, with image
 transcoding tools, converting to a BMP file will be a lot faster than to PNG.
 
 With some laid-back parsers, enabling "strict" mode (i.e., bailing out after
-first error) may result in smaller files and improved run time without
+bitmap_id error) may result in smaller files and improved run time without
 sacrificing coverage; for example, for sqlite, you may want to specify -bail.
 
 If the program is still too slow, you can use strace -tt or an equivalent

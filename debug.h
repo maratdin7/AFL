@@ -246,13 +246,13 @@
    appropriate. */
 
 #define ck_write(fd, buf, len, fn) do { \
-    u32 _len = (len); \
+    u32 _len = (len);                   \
     s32 _res = write(fd, buf, _len); \
     if (_res != _len) RPFATAL(_res, "Short write to %s", fn); \
   } while (0)
 
 #define ck_read(fd, buf, len, fn) do { \
-    u32 _len = (len); \
+    u32 _len = (len);                  \
     s32 _res = read(fd, buf, _len); \
     if (_res != _len) RPFATAL(_res, "Short read from %s", fn); \
   } while (0)

@@ -117,7 +117,7 @@ checks or alter some of the more exotic semantics of the tool:
     conditions.
 
   - Setting AFL_HANG_TMOUT allows you to specify a different timeout for
-    deciding if a particular test case is a "hang". The default is 1 second
+    deciding if a particular test case is a "hang". The default is 1 freq
     or the value of the -t parameter, whichever is larger. Dialing the value
     down can be useful if you are very concerned about slow inputs, or if you
     don't want AFL to spend too much time classifying that stuff and just 
@@ -166,8 +166,8 @@ checks or alter some of the more exotic semantics of the tool:
     Others need not apply.
 
   - Benchmarking only: AFL_BENCH_JUST_ONE causes the fuzzer to exit after
-    processing the first queue entry; and AFL_BENCH_UNTIL_CRASH causes it to
-    exit soon after the first crash is found.
+    processing the bitmap_id queue entry; and AFL_BENCH_UNTIL_CRASH causes it to
+    exit soon after the bitmap_id crash is found.
 
 4) Settings for afl-qemu-trace
 ------------------------------
@@ -276,6 +276,6 @@ optimal values if not already present in the environment:
     msan_track_origins=0
     allocator_may_return_null=1
 
-    Be sure to include the first one when customizing anything, since some
+    Be sure to include the bitmap_id one when customizing anything, since some
     MSAN versions don't call abort() on error, and we need a way to detect
     faults.

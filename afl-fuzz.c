@@ -41,6 +41,7 @@
 #include "debug.h"
 #include "alloc-inl.h"
 #include "hash.h"
+#include "data_types.h"
 
 #include <stdio.h>
 #include <unistd.h>
@@ -69,6 +70,8 @@
 #include <sys/file.h>
 #include <assert.h>
 #include <float.h>
+//#include <gmpxx.h>
+
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined (__OpenBSD__)
 #  include <sys/sysctl.h>
@@ -95,11 +98,8 @@ struct rel_file {
     u32 len;
     u32 index;
 };
-/*
- * ты хотел хранить в массивах указатели!!!!!!!!!!!!!!!!
- * */
-struct set_rel_files {           // перемести куда-нибудь
 
+struct rel_files_s {           // перемести куда-нибудь
     struct rel_file set[MAX_OUT_FNS];
     u32 set_size,
             marker_1,
@@ -111,13 +111,30 @@ struct set_rel_files {           // перемести куда-нибудь
             last_crash_time;
 
     double mark;
+
+    ptr_array_t *bitmap_freq;
+
+    double energy;
+
+    u32 sum_incidence,
+            num_exec_mutations,
+            needs_energy_update;
 };                          //
+
+typedef struct rel_files_s rel_files_t;
 
 #define MAX_SIZE_SUIT 10
 #define RESET_SUIT_FLS 5
 
+u32 number_bitmap = 0;
 
-u32 test = 0;
+struct entropy_s {
+    u8 enable;
+    u32 num_of_rarest_bitmap,
+            freq_threshold;
+};
+
+typedef struct entropy_s entropy_t;
 
 struct state_files {
     u8 *out_file,              /* File to fuzz, if any             */
@@ -169,16 +186,46 @@ struct state_files {
 
     s32 out_dir_fd;           /* FD of the lock file              */
 
-    struct set_rel_files *sets_rel_fls[MAP_SIZE],
+    rel_files_t *sets_rel_fls[MAP_SIZE],
             *favorit[MAX_SIZE_SUIT],
-            *suit[MAX_SIZE_SUIT];                      //динамический массив
+            *suit[MAX_SIZE_SUIT];
 
     u32 sets_rel_fls_size,
             favorit_size,
             suit_size;
     u32 reset, prev_skip;
+
+    array_t *rare_bitmaps;
+    ptr_array_t *weights;
+
+    hash_table_t *global_freqs;
+
+    u32 freq_of_most_abd_rare_bitmap;
+
+    u8 max_mutation_factor;
+    u32 sparse_energy_updates;
+
+
+    u32 distr_needs_update;
+    u32 num_executed_mutations;
+
 };
 
+entropy_t entropy;
+
+struct bitmap_id_freq_s {
+    u32 bitmap_id,
+            freq;
+};
+
+struct weight_seed_s {
+    u32 i;
+    double weight;
+};
+
+typedef struct bitmap_id_freq_s bitmap_id_freq_t;
+
+typedef struct weight_seed_s weight_seed_t;
 
 EXP_ST u32 related_fls[MAX_OUT_FNS];
 
@@ -241,7 +288,8 @@ no_cpu_meter_red,          /* Feng shui on the status screen   */
 no_arith,                  /* Skip most arithmetic ops         */
 shuffle_queue,             /* Shuffle input queue?             */
 bitmap_changed = 1,        /* Time to update bitmap?           */
-qemu_mode,                 /* Running in QEMU mode?            */
+bitmap_crash_changed = 1,
+        qemu_mode,                 /* Running in QEMU mode?            */
 skip_requested,            /* Skip request, via SIGUSR1        */
 run_over10m,               /* Run time over 10 minutes?        */
 persistent_mode,           /* Running in persistent mode?      */
@@ -373,9 +421,9 @@ struct queue_entry {
     u8 *trace_mini;                         /* Trace bytes, if kept             */
     u32 tc_ref;                             /* Trace bytes ref count            */
 
-    struct set_rel_files *set_rel_fls;
+    rel_files_t *set_rel_fls;
 
-    struct queue_entry *next,               /* Next element, if any             */
+    struct queue_entry *next,         /* Next element, if any             */
     *next_100;                      /* 100 elements ahead               */
 
 };
@@ -450,24 +498,284 @@ enum {
     /* 05 */ FAULT_NOBITS
 };
 
+enum {
+    MIN_COV,
+    MAX_COV,
+    RAND_COV,
+    ENTROPY
+};
+
 static void write_bitmap_custom(u8 *fn, const u8 *trace, u32 trace_len, u8 *fn_path) {
-    u32 fd = open(fn, O_RDWR | O_CREAT, 0600);
-    if (fd < 0) {
-        LOG("Delete bitmap with fname %s", fn);
-        unlink(fn);
-        fd = open(fn, O_RDWR | O_CREAT, 0600);
-    }
-    LOG(("bitmap_%d = %s"), test, fn_path);
-    u32 repeat = 0;
+
+    u32 fd, repeat = 0;
+
+    fd = open(fn, O_RDWR | O_CREAT | O_TRUNC, 0600);
+    if (fd < 0) PFATAL("Unable to create '%s'", fn);
+
+    LOG("bitmap_%d = %s", number_bitmap, fn_path);
+    number_bitmap++;
     for (int i = 0; i < trace_len; i++) {
         if (trace[i] != 0) {
-            u8 *str = alloc_printf("trace <repeat 0 %d> %d i = %d\n", repeat, trace[i] & 0xff, i);
+
+            u8 *str = alloc_printf("trace <repeat 0 %d> %u i = %d\n", repeat, trace[i], i);
             write(fd, str, strlen(str));
             repeat = 0;
             ck_free(str);
+
         } else repeat++;
     }
     close(fd);
+}
+
+s8 compare_bitmap_id_freq(void *a, void *b) {
+    bitmap_id_freq_t *aa = (bitmap_id_freq_t *) a;
+    bitmap_id_freq_t *bb = (bitmap_id_freq_t *) b;
+    return aa->bitmap_id - bb->bitmap_id;
+}
+
+bitmap_id_freq_t *create_bitmap_id_freq(u32 f, u32 s) {
+    bitmap_id_freq_t *x = ck_alloc(sizeof(bitmap_id_freq_t *));
+    x->bitmap_id = f;
+    x->freq = s;
+    return x;
+}
+
+bitmap_id_freq_t *set_bitmap_id_freq(void *p, u32 f, u32 s) {
+    bitmap_id_freq_t *pair = (bitmap_id_freq_t *) p;
+    if (pair == NULL)
+        pair = create_bitmap_id_freq(f, s);
+    else {
+        pair->bitmap_id = f;
+        pair->freq = s;
+    }
+    return pair;
+}
+
+weight_seed_t *set_weight_seed(void *weight_seed, u32 index, double weight) {
+    weight_seed_t *ws = (weight_seed_t *) weight_seed;
+    if (ws == NULL)
+        ws = ck_alloc(sizeof(weight_seed_t *));
+
+    ws->i = index;
+    ws->weight = weight;
+    return ws;
+}
+
+u8 delete_bitmap_freq(ptr_array_t *arr, u32 val) {
+    if (arr->len == 0)
+        return 0;
+
+    u32 index =
+            ptr_lower_bound(arr, 0, arr->len, &(bitmap_id_freq_t) {val, 0}, compare_bitmap_id_freq);
+
+    if (index != arr->len && ((bitmap_id_freq_t *) ptr_array_index(arr, index))->bitmap_id == val) {
+        ptr_array_remove_index(arr, index);
+        return 1;
+    }
+    return 0;
+}
+
+void update_energy(rel_files_t *s, u32 global_num_of_species) {
+
+    ptr_array_t *bitmap_freq = s->bitmap_freq;
+
+    double energy = 0.0;
+    u32 abd_incidence,
+            sum_incidence = 0;
+
+    for (u32 i = 0; i < bitmap_freq->len; i++) {
+
+        u32 local_incidence = ((bitmap_id_freq_t *) ptr_array_index(bitmap_freq, i))->freq + 1;
+        energy -= local_incidence * log((double) local_incidence);
+        sum_incidence += local_incidence;
+    }
+
+    sum_incidence += global_num_of_species - bitmap_freq->len;
+    abd_incidence = s->num_exec_mutations + 1;
+    energy -= abd_incidence * log(abd_incidence);
+    sum_incidence += abd_incidence;
+
+    if (sum_incidence != 0)
+        energy = (energy / sum_incidence) + log(sum_incidence);
+
+    s->energy = energy;
+    s->sum_incidence = sum_incidence;
+
+}
+
+void update_bitmap_freq_local(rel_files_t *s, u32 val) {
+
+    ptr_array_t *bitmap_freqs = s->bitmap_freq;
+
+    if (bitmap_freqs == NULL) {
+        g_array_new(FALSE, FALSE, sizeof(bitmap_id_freq_t *));
+    }
+
+    s->needs_energy_update = 1;
+    bitmap_id_freq_t *x;
+    u32 index =
+            ptr_lower_bound(bitmap_freqs, 0, bitmap_freqs->len, &(bitmap_id_freq_t) {val, 0}, compare_bitmap_id_freq);
+
+    if (index == bitmap_freqs->len) {
+        x = create_bitmap_id_freq(val, 1);
+        ptr_array_insert(bitmap_freqs, index, x);
+        return;
+    }
+
+    x = ptr_array_index(bitmap_freqs, index);
+
+    if (x != NULL && x->bitmap_id == val)
+        x->freq++;
+    else {
+        x = create_bitmap_id_freq(val, 1);
+        ptr_array_insert(bitmap_freqs, index, x);
+    }
+}
+
+void add_rare_bitmap(rel_files_t **s, u32 s_size, u32 key) {
+
+    struct state_files *st = afl_state + cur_index;
+
+    while (st->rare_bitmaps->len > entropy.num_of_rarest_bitmap &&
+           st->freq_of_most_abd_rare_bitmap > entropy.freq_threshold) {
+
+        u32 cur_key = *array_index(st->rare_bitmaps, u32, 0);
+        u32 most_abudante_key[2] = {cur_key,
+                                    cur_key
+        };
+
+        u32 delete = 0;
+
+        for (u32 i = 0; i < st->rare_bitmaps->len; i++) {
+            u32 *f, *most_f;
+
+            cur_key = g_array_index(st->rare_bitmaps, u32, i);
+            f = g_hash_table_lookup(st->global_freqs, (gpointer) &cur_key);
+            most_f = g_hash_table_lookup(st->global_freqs, (gpointer) most_abudante_key);
+
+            if (f == NULL || most_f == NULL)
+                FATAL("global_freqs doesn't contain %d (f %p, most_f %p)", cur_key, f, most_f);
+
+            if (*f >= *most_f) {
+                most_abudante_key[1] = most_abudante_key[0];
+                most_abudante_key[0] = cur_key;
+                delete = i;
+            }
+        }
+
+        g_array_remove_index_fast(st->rare_bitmaps, delete);
+
+        for (u32 i = 0; i < s_size; i++) {
+            if (delete_bitmap_freq(s[i]->bitmap_freq, most_abudante_key[0]))
+                s[i]->needs_energy_update = 1;
+        }
+
+        st->freq_of_most_abd_rare_bitmap =
+                *(u32 *) g_hash_table_lookup(st->global_freqs, (gpointer) (most_abudante_key + 1));
+
+    }
+
+    g_array_append_val(st->rare_bitmaps, key);
+    u32 *tmp = malloc(sizeof(u32));
+    memcpy(tmp, &key, sizeof(u32));
+    u32 *val = malloc(sizeof(u32));
+    *val = 0;
+    g_hash_table_insert(st->global_freqs, tmp, val);
+
+    for (u32 i = 0; i < s_size; i++) {
+        delete_bitmap_freq(s[i]->bitmap_freq, key);
+
+        if (s[i]->energy > 0.0) {
+            s[i]->sum_incidence += 1;
+            s[i]->energy += log(s[i]->sum_incidence) / s[i]->sum_incidence;
+        }
+    }
+
+    st->distr_needs_update = 1;
+
+}
+
+u32 array_find(array_t *array, u32 val) {
+
+    for (u32 i = 0; i < array->len; i++) {
+        if (val == *array_index(array, u32, i))
+            return i;
+    }
+    return array->len;
+}
+
+void update_bitmap_freq(rel_files_t *s, u32 key) {
+
+    struct state_files *st = afl_state + cur_index;
+
+    u32 *val = hash_table_get(st->global_freqs, &key);
+
+    if (val == NULL)
+        FATAL("global_freqs doesn't contain %d ", key);
+
+    if (*val == 0xFFFF)
+        return;
+
+    (*val)++;
+
+    if (*val > st->freq_of_most_abd_rare_bitmap || array_find(st->rare_bitmaps, key) == st->rare_bitmaps->len)
+        return;
+
+    if (*val == st->freq_of_most_abd_rare_bitmap)
+        st->freq_of_most_abd_rare_bitmap++;
+
+    if (s)
+        update_bitmap_freq_local(s, key);
+
+}
+
+#define weights_set_index(a, i, w) do { \
+        weight_seed_t ** tmp = (weight_seed_t **) ((a)->pdata + (i)); \
+        *tmp = set_weight_seed(*tmp, (i), (w));  \
+    } while (0)
+
+void update_corpus_distr(rel_files_t **s, u32 s_size) {
+
+    struct state_files *st = afl_state + cur_index;
+
+    if (!st->distr_needs_update &&
+        (!entropy.enable || random() % st->sparse_energy_updates))
+        return;
+
+    st->distr_needs_update = 0;
+
+    if (!s_size)
+        FATAL("set_rel_files ** is empty");
+
+
+    ptr_array_set_size(st->weights, s_size);
+    u32 default_choise = 1;
+
+    if (entropy.enable) {
+        for (u32 i = 0; i < s_size; i++) {
+            if (s[i]->needs_energy_update && s[i]->energy != 0.0) {
+                s[i]->needs_energy_update = 0;
+                update_energy(s[i], st->rare_bitmaps->len);
+            }
+        }
+
+        for (u32 i = 0; i < s_size; i++) {
+            if (s[i]->bitmap_freq->len == 0) {
+                weights_set_index(st->weights, i, 0.0);
+            } else if (s[i]->num_exec_mutations / st->max_mutation_factor >
+                       st->num_executed_mutations / s_size) {
+                weights_set_index(st->weights, i, 0.0);
+            } else {
+                weights_set_index(st->weights, i, s[i]->energy);
+            }
+
+            if (((weight_seed_t *) ptr_array_index(st->weights, i))->weight > 0.0)
+                default_choise = 0;
+        }
+    }
+
+    if (default_choise)
+        FATAL("добавь Выбор по максимому");
 }
 
 /* Get unix time in milliseconds */
@@ -658,7 +966,7 @@ static void bind_to_free_cpu(void) {
 
 #ifndef IGNORE_FINDS
 
-/* Helper function to compare buffers; returns first and last differing offset. We
+/* Helper function to compare buffers; returns bitmap_id and last differing offset. We
    use this to find reasonable locations for splicing two files. */
 
 static void locate_diffs(u8 *ptr1, u8 *ptr2, u32 len, s32 *first, s32 *last) {
@@ -979,23 +1287,20 @@ EXP_ST void destroy_queue(struct queue_entry *q) {
    -B option, to focus a separate fuzzing session on a particular
    interesting input without rediscovering all the others. */
 
-EXP_ST void write_bitmap(void) {
+EXP_ST void write_bitmap(u8 *fname, u8 *mem) {
 
-    u8 *fname;
     s32 fd;
 
     if (!bitmap_changed) return;
     bitmap_changed = 0;
 
-    fname = alloc_printf("%s/fuzz_bitmap", afl_state[0].out_dir);
     fd = open(fname, O_WRONLY | O_CREAT | O_TRUNC, 0600);
 
     if (fd < 0) PFATAL("Unable to open '%s'", fname);
 
-    ck_write(fd, virgin_bits, MAP_SIZE, fname);
+    ck_write(fd, mem, MAP_SIZE, fname);
 
     close(fd);
-    ck_free(fname);
 
 }
 
@@ -1096,7 +1401,7 @@ static inline u8 has_new_bits(u8 *virgin_map) {
 
 
 /* Count the number of bits set in the provided bitmap. Used for the status
-   screen several times every second, does not have to be fast. */
+   screen several times every freq, does not have to be fast. */
 
 static u32 count_bits(u8 *mem) {
 
@@ -1157,7 +1462,7 @@ static u32 count_bytes(u8 *mem) {
 
 
 /* Count the number of non-255 bytes set in the bitmap. Used strictly for the
-   status screen, several calls per second or so. */
+   status screen, several calls per freq or so. */
 
 static u32 count_non_255_bytes(u8 *mem) {
 
@@ -1379,7 +1684,7 @@ static void minimize_bits(u8 *dst, u8 *src) {
    seen in the bitmap so far, and focus on fuzzing them at the expense of
    the rest.
 
-   The first step of the process is to maintain a list of top_rated[] entries
+   The bitmap_id step of the process is to maintain a list of top_rated[] entries
    for every byte in the bitmap. We win that slot if there is no previous
    contender, or if the contender has a more favorable speed x size factor. */
 
@@ -1425,7 +1730,7 @@ static void update_bitmap_score(struct queue_entry *q) {
 }
 
 
-/* The second part of the mechanism discussed above is a routine that
+/* The freq part of the mechanism discussed above is a routine that
    goes over top_rated[] entries, and then sequentially grabs winners for
    previously-unseen bytes (temp_v) and marks them as favored, at least
    until the next run. The favored entries are given more air time during
@@ -1685,7 +1990,7 @@ static int compare_double(const void *p1, const void *p2) {
     return (d > EPS) ? 1 : 0;
 }
 
-static double mark_sets(struct set_rel_files *a) {
+static double mark_sets(rel_files_t *a) {
     u64 tmp = 0;
     if (last_path_time >= a->last_path_time &&
         last_crash_time >= a->last_crash_time) {
@@ -1700,10 +2005,21 @@ static double mark_sets(struct set_rel_files *a) {
 }
 
 static int compare_sets_rel_fls(const void *p1, const void *p2) {
-    struct set_rel_files *s1 = *((struct set_rel_files **) p1),
-            *s2 = *((struct set_rel_files **) p2);
+    rel_files_t *s1 = *((rel_files_t **) p1),
+            *s2 = *((rel_files_t **) p2);
 
     return compare_double(&s1->mark, &s2->mark);
+}
+
+static s32 compare_weight_seed(const void *p1, const void *p2) {
+    weight_seed_t *s1 = (weight_seed_t *) p1,
+            *s2 = (weight_seed_t *) p2;
+
+    return compare_double(&s1->weight, &s2->weight);
+}
+
+static s32 compare_weight_seed_neg(const void *p1, const void *p2) {
+    return -compare_weight_seed(p1, p2);
 }
 
 /* Read extras from a file, sort by size. */
@@ -2696,7 +3012,7 @@ static void write_to_testcase(void *out_buf, u32 len, u8 *file) {
 
 }
 
-static void write_to_rel_fls_testcase(struct set_rel_files *dataset) {
+static void write_to_rel_fls_testcase(rel_files_t *dataset) {
 
     if (dataset == NULL) return;
 
@@ -2713,7 +3029,7 @@ static void write_to_rel_fls_testcase(struct set_rel_files *dataset) {
     }
 }
 
-static void write_to_multiple_testcase(u8 *out_buf, u32 len, struct set_rel_files *dataset) {
+static void write_to_multiple_testcase(u8 *out_buf, u32 len, rel_files_t *dataset) {
 
     write_to_testcase(out_buf, len, out_file);
     write_to_rel_fls_testcase(dataset);
@@ -2721,7 +3037,7 @@ static void write_to_multiple_testcase(u8 *out_buf, u32 len, struct set_rel_file
 
 /* The same, but with an adjustable gap. Used for trimming. */
 
-static void write_with_gap(void *mem, u32 len, u32 skip_at, u32 skip_len, struct set_rel_files *dataset) {
+static void write_with_gap(void *mem, u32 len, u32 skip_at, u32 skip_len, rel_files_t *dataset) {
 
     s32 fd = out_fd;
     u32 tail_len = len - skip_at - skip_len;
@@ -2759,7 +3075,7 @@ static void show_stats(void);
 static u8 calibrate_case(char **argv,
                          struct queue_entry *q,
                          u8 *use_mem,
-                         struct set_rel_files *dataset,
+                         rel_files_t *dataset,
                          u32 handicap,
                          u8 from_queue) {
 
@@ -2905,7 +3221,7 @@ static u8 calibrate_case(char **argv,
 
 }
 
-/* Examine map coverage. Called once, for first test case. */
+/* Examine map coverage. Called once, for bitmap_id test case. */
 
 static void check_map_coverage(void) {
 
@@ -2950,7 +3266,7 @@ static void perform_dry_run(char **argv) {
 
         close(fd);
 
-        struct set_rel_files *empty = NULL;
+        rel_files_t *empty = NULL;
         res = calibrate_case(argv, q, use_mem, empty, 0, 1);
         ck_free(use_mem);
 
@@ -3253,7 +3569,7 @@ static void pivot_inputs(void) {
 
         //u8 *fn_bitmap = alloc_printf("bitmap_%d", test);
         //write_bitmap_custom(fn_bitmap, trace_bits, MAP_SIZE, nfn);
-        test++;
+        //number_bitmap++;
         //ck_free(fn_bitmap);
 
         /* Make sure that the passed_det value carries over, too. */
@@ -3360,9 +3676,15 @@ static void write_crash_readme(void) {
 
 }
 
+static double start_energy(array_t *rare_bitmaps) {
+    u32 len = rare_bitmaps->len;
+    return !len ? 1.0 : log(len);
+}
+
 static void save_related_fls(u8 *fn, u32 len, u32 current_index) {
 
-    struct set_rel_files *s;
+    rel_files_t *s;
+    array_t *rare_bitmaps;
     u32 j;
 
     for (u32 i = 1; i < MAX_OUT_FNS; i++) {
@@ -3370,8 +3692,8 @@ static void save_related_fls(u8 *fn, u32 len, u32 current_index) {
         if (related_fls[i] && i != current_index) {                //
 
             j = afl_state[i].sets_rel_fls_size;
-            s = malloc(sizeof(struct set_rel_files));
-
+            rare_bitmaps = afl_state[i].rare_bitmaps;
+            s = malloc(sizeof(rel_files_t));
             s->set[0].fname = ck_strdup(fn);
             s->set[0].len = len;
             s->set[0].index = current_index;
@@ -3382,8 +3704,14 @@ static void save_related_fls(u8 *fn, u32 len, u32 current_index) {
             s->crashs = 0;
             s->set_size = 1;
 
+            s->energy = !len ? 1.0 : log(len);
+            s->sum_incidence = rare_bitmaps->len;
+            s->needs_energy_update = 0;
+            s->num_exec_mutations = 0;
+
             afl_state[i].sets_rel_fls[j] = s;
             afl_state[i].sets_rel_fls_size++;
+            afl_state[i].distr_needs_update = 1;
 
             LOG("Save related file - %s for file - %d", fn, i);
 
@@ -3391,7 +3719,7 @@ static void save_related_fls(u8 *fn, u32 len, u32 current_index) {
     }
 }
 
-static void save_set(u8 *fn_mem, struct set_rel_files *dataset) {
+static void save_set(u8 *fn_mem, rel_files_t *dataset) {
 
     u8 *fn = "",
             *line = "";
@@ -3426,7 +3754,7 @@ static void save_set(u8 *fn_mem, struct set_rel_files *dataset) {
 static u8 save_if_interesting(char **argv,
                               void *mem,
                               u32 len,
-                              struct set_rel_files *dataset,
+                              rel_files_t *dataset,
                               u8 fault) {
 
     u8 *fn = "";
@@ -3444,6 +3772,8 @@ static u8 save_if_interesting(char **argv,
             return 0;
         }
 
+        /* u8 *bitmap_name = alloc_printf("bitmap_%d", number_bitmap);
+         write_bitmap_custom(bitmap_name, trace_bits, MAP_SIZE, "");*/
 #ifndef SIMPLE_FILES
 
         fn = alloc_printf("%s/queue/id:%06u,%s", out_dir, queued_paths,
@@ -3480,17 +3810,24 @@ static u8 save_if_interesting(char **argv,
 
         res = calibrate_case(argv, queue_top, mem, dataset, queue_cycle - 1, 0);
 
-        save_related_fls(fn, len, cur_index);
-
         if (res == FAULT_ERROR)
             FATAL("Unable to execute target application");
+
+        save_related_fls(fn, len, cur_index);
+
+        if (entropy.enable) {
+
+            struct state_files st = afl_state[cur_index];
+            add_rare_bitmap(st.sets_rel_fls, st.sets_rel_fls_size, queue_top->exec_cksum);
+            update_bitmap_freq(dataset, queue_top->exec_cksum);
+        }
 
         fd = open(fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
         if (fd < 0) PFATAL("Unable to create '%s'", fn);
         ck_write(fd, mem, len, fn);
         close(fd);
 
-        //save_set(fn, dataset);
+        save_set(fn, dataset);
 
         keeping = 1;
 
@@ -3552,8 +3889,8 @@ static u8 save_if_interesting(char **argv,
 
 #else
 
-                                                                                                                                fn = alloc_printf("%s/hangs/id_%06llu", out_dir,
-                        unique_hangs);
+            fn = alloc_printf("%s/hangs/id_%06llu", out_dir,
+unique_hangs);
 
 #endif /* ^!SIMPLE_FILES */
 
@@ -3596,8 +3933,8 @@ static u8 save_if_interesting(char **argv,
 
 #else
 
-                                                                                                                                fn = alloc_printf("%s/crashes/id_%06llu_%02u", out_dir, unique_crashes,
-                        kill_signal);
+            fn = alloc_printf("%s/crashes/id_%06llu_%02u", out_dir, unique_crashes,
+kill_signal);
 
 #endif /* ^!SIMPLE_FILES */
 
@@ -3605,6 +3942,11 @@ static u8 save_if_interesting(char **argv,
 
             last_crash_time = get_cur_time();
             last_crash_execs = total_execs;
+
+            bitmap_changed = 1;
+            u8 *fn_crash = alloc_printf("%s/fuzz_bitmap_crash", afl_state[0].out_dir);
+            write_bitmap(fn_crash, virgin_crash);
+            ck_free(fn_crash);
 
             break;
 
@@ -3624,7 +3966,7 @@ static u8 save_if_interesting(char **argv,
     ck_write(fd, mem, len, fn);
     close(fd);
 
-    //save_set(fn, dataset);
+    save_set(fn, dataset);
 
     ck_free(fn);
 
@@ -4010,7 +4352,7 @@ static void maybe_delete_out_dir(void) {
                      cRST
                      "Looks like the job output directory is being actively used by another\n"
                      "    instance of afl-fuzz. You will need to choose a different %s\n"
-                     "    or stop the other process first.\n",
+                     "    or stop the other process bitmap_id.\n",
              sync_id ? "fuzzer ID" : "output location");
 
         FATAL("Directory '%s' is in use", out_dir);
@@ -4318,8 +4660,10 @@ static void show_stats(void) {
         last_stats_ms = cur_ms;
         write_stats_file(t_byte_ratio, stab_ratio, avg_exec);
         save_auto();
-        write_bitmap();
 
+        u8 *fn_bitmap = alloc_printf("%s/fuzz_bitmap", afl_state[0].out_dir);
+        write_bitmap(fn_bitmap, virgin_bits);
+        ck_free(fn_bitmap);
     }
 
     /* Every now and then, write plot data. */
@@ -4568,7 +4912,7 @@ static void show_stats(void) {
 
     /* This gets funny because we want to print several variable-length variables
      together, but then cram them into a fixed-width field - so we need to
-     put them in a temporary buffer first. */
+     put them in a temporary buffer bitmap_id. */
 
     sprintf(tmp, "%s%s (%0.02f%%)", DI(current_entry),
             queue_cur->favored ? "" : "*",
@@ -5112,7 +5456,7 @@ static void show_init_stats(void) {
     if (!timeout_given) {
 
         /* Figure out the appropriate timeout. The basic idea is: 5x average or
-       1x max, rounded up to EXEC_TM_ROUND ms and capped at 1 second.
+       1x max, rounded up to EXEC_TM_ROUND ms and capped at 1 freq.
 
        If the program is slow, the multiplier is lowered to 2x or 3x, because
        random scheduler jitter is less likely to have any impact, and because
@@ -5149,7 +5493,7 @@ static void show_init_stats(void) {
 }
 
 
-/* Find first power of two greater or equal to val (assuming val under
+/* Find bitmap_id power of two greater or equal to val (assuming val under
    2^31). */
 
 static u32 next_p2(u32 val) {
@@ -5352,7 +5696,7 @@ static void change_index(s32 current_index, s32 new_index) {
     cur_index = new_index;
 }
 
-EXP_ST void queue_setting(char **argv, u8 *out_buf, s32 len, struct set_rel_files *dataset) {
+EXP_ST void queue_setting(char **argv, u8 *out_buf, s32 len, rel_files_t *dataset) {
 
     add_to_queue(ck_strdup(out_fns[cur_index]), len, 0);
 
@@ -5418,13 +5762,13 @@ EXP_ST void read_ignore(u8 *fn) {
         OKF("find %d ignore files", ignore_fls_size);
 }
 
-EXP_ST void save_new_out_fl(char **argv, u8 *new_fl, u8 *cur_buf, u32 len, struct set_rel_files *dataset) {
+EXP_ST void save_new_out_fl(char **argv, u8 *new_fl, u8 *cur_buf, u32 len, rel_files_t *dataset) {
 
     u32 i, prev_index, buf_len;
     s32 fd;
     u8 *fn, *buf, *tmp, *state;
 
-    struct set_rel_files *d;
+    rel_files_t *d;
 
     i = out_fns_size;
     out_fns_size++;
@@ -5449,7 +5793,7 @@ EXP_ST void save_new_out_fl(char **argv, u8 *new_fl, u8 *cur_buf, u32 len, struc
 
     close(fd);
 
-    d = malloc(sizeof(struct set_rel_files));
+    d = malloc(sizeof(rel_files_t));
     d->set[0].fname = ck_strdup(fn);
     d->set[0].len = len;
     d->set[0].index = prev_index;
@@ -5493,7 +5837,7 @@ EXP_ST void save_new_out_fl(char **argv, u8 *new_fl, u8 *cur_buf, u32 len, struc
     OKF("File - %s added", new_fl);
 }
 
-EXP_ST void find_new_out_fls(char **argv, u8 *out_buf, u32 len, struct set_rel_files *dataset) {
+EXP_ST void find_new_out_fls(char **argv, u8 *out_buf, u32 len, rel_files_t *dataset) {
 
     u32 paths_len = ck_len(paths_fd);
 
@@ -5533,9 +5877,16 @@ EXP_ST void find_new_out_fls(char **argv, u8 *out_buf, u32 len, struct set_rel_f
 }
 
 
-EXP_ST void suit_rel_fls(struct set_rel_files **s, u32 *s_size, struct set_rel_files **r, u32 r_size, u32 *reset);
+EXP_ST void suit_rel_fls(struct state_files *);
 
-EXP_ST u32 reset_suit_rel_fls(struct set_rel_files **s, u32 *s_size, struct set_rel_files **r, u32 r_size, u32 *reset) {
+EXP_ST void reset_suit_rel_fls(struct state_files *sf) {
+
+    u32 *s_size, r_size, *reset;
+    rel_files_t **r = sf->sets_rel_fls;
+
+    s_size = &sf->suit_size;
+    r_size = sf->sets_rel_fls_size;
+    reset = &sf->reset;
 
     if (*reset == RESET_SUIT_FLS) {
 
@@ -5544,15 +5895,28 @@ EXP_ST u32 reset_suit_rel_fls(struct set_rel_files **s, u32 *s_size, struct set_
             r[i]->marker_1 = 0;
 
         *reset = 0;
-        suit_rel_fls(s, s_size, r, r_size, reset);
+        suit_rel_fls(sf);
     }
 }
 
-EXP_ST void suit_rel_fls(struct set_rel_files **s, u32 *s_size, struct set_rel_files **r, u32 r_size, u32 *reset) {
+
+
+EXP_ST void suit_rel_fls(struct state_files *sf) {
     /*
      * Заполняем до предела если дошли до конца и 5 кругов нет новых данных
      * то сбрасываем счет и переделываем сбор еще раз
      */
+    rel_files_t **s,  **r;
+    u32 *s_size, r_size, *reset;
+
+    ptr_array_t *weights = sf->weights;
+    s = sf->suit;
+    s_size = &sf->suit_size;
+    r = sf->sets_rel_fls;
+    r_size = sf->sets_rel_fls_size;
+    reset = &sf->reset;
+
+
     if (r_size == 0)
         return;
 
@@ -5560,7 +5924,7 @@ EXP_ST void suit_rel_fls(struct set_rel_files **s, u32 *s_size, struct set_rel_f
 
     switch (type_mode) {
 
-        case 1:
+        case MIN_COV:
 
             for (u32 i = r_size - 1; i >= 0; i--) {
 
@@ -5576,8 +5940,22 @@ EXP_ST void suit_rel_fls(struct set_rel_files **s, u32 *s_size, struct set_rel_f
                 } else break;
             }
             break;
+        case MAX_COV: {
+            for (u32 i = 0; i < r_size; i++) {
 
-        case 2: {
+                if (j < MAX_SIZE_SUIT) {
+
+                    if (!r[i]->marker_1) {
+
+                        *reset = 0;
+                        s[j] = r[i];
+                        s[j]->marker_1++;
+                        j++;
+                    }
+                } else break;
+            }
+        }
+        case RAND_COV: {
             int count = 0,
                     size = 0;
 
@@ -5605,21 +5983,20 @@ EXP_ST void suit_rel_fls(struct set_rel_files **s, u32 *s_size, struct set_rel_f
             break;
         }
 
-        default:
+        default: {
 
-            for (u32 i = 0; i < r_size; i++) {
+            weight_seed_t **sort_weights = malloc(sizeof(weight_seed_t *) * weights->len);
+            memcpy(sort_weights, weights->pdata, sizeof(weight_seed_t *) * weights->len);
+            qsort(sort_weights, weights->len, sizeof(weight_seed_t *), compare_weight_seed_neg);
 
-                if (j < MAX_SIZE_SUIT) {
-
-                    if (!r[i]->marker_1) {
-
-                        *reset = 0;
-                        s[j] = r[i];
-                        s[j]->marker_1++;
-                        j++;
-                    }
-                } else break;
+            for (j = 0; j < weights->len; j++) {
+                if (j < MAX_SIZE_SUIT)
+                    s[j] = r[sort_weights[j]->i];
+                else break;
             }
+            free(sort_weights);
+        }
+
     }
 
     if (j != 0) {
@@ -5628,17 +6005,17 @@ EXP_ST void suit_rel_fls(struct set_rel_files **s, u32 *s_size, struct set_rel_f
     }
 
     (*reset)++;
-    reset_suit_rel_fls(s, s_size, r, r_size, reset);
+    reset_suit_rel_fls(sf);
 }
 
-EXP_ST void favorit_sets_rel_fls(struct set_rel_files **f, u32 *f_size, struct set_rel_files **s, u32 s_size) {
+EXP_ST void favorit_sets_rel_fls(rel_files_t **f, u32 *f_size, rel_files_t **s, u32 s_size) {
 
     u32 i, j;
 
     for (i = 0; i < s_size; i++)
         s[i]->mark = mark_sets(s[i]);
 
-    qsort(s, s_size, sizeof(struct set_rel_files *), compare_sets_rel_fls);
+    qsort(s, s_size, sizeof(rel_files_t *), compare_sets_rel_fls);
     i = 0;
     j = 0;
 
@@ -5665,7 +6042,7 @@ EXP_ST void favorit_sets_rel_fls(struct set_rel_files **f, u32 *f_size, struct s
    trimmer uses power-of-two increments somewhere between 1/16 and 1/1024 of
    file size, to keep the stage short and sweet. */
 
-static u8 trim_case(char **argv, struct queue_entry *q, u8 *in_buf, struct set_rel_files *dataset) {
+static u8 trim_case(char **argv, struct queue_entry *q, u8 *in_buf, rel_files_t *dataset) {
 
     static u8 tmp[64];
     static u8 clean_trace[MAP_SIZE];
@@ -5792,7 +6169,7 @@ static u8 trim_case(char **argv, struct queue_entry *q, u8 *in_buf, struct set_r
 EXP_ST u8 common_fuzz_stuff_1(char **argv,
                               u8 *out_buf,
                               u32 len,
-                              struct set_rel_files *dataset) {
+                              rel_files_t *dataset) {
 
     u8 fault;
 
@@ -5847,7 +6224,7 @@ EXP_ST u8 common_fuzz_stuff_1(char **argv,
     return 0;
 }
 
-static void replenishment(struct set_rel_files **d, u32 *j, struct set_rel_files **a, u32 a_size) {
+static void replenishment(rel_files_t **d, u32 *j, rel_files_t **a, u32 a_size) {
 
     for (u32 i = 0; i < a_size; i++) {
         if (!a[i]->marker_2) {
@@ -5859,9 +6236,9 @@ static void replenishment(struct set_rel_files **d, u32 *j, struct set_rel_files
 }
 
 static void
-select_datasets(struct set_rel_files **d, u32 *d_size, struct state_files *st, struct set_rel_files **p, u32 p_size) {
+select_datasets(rel_files_t **d, u32 *d_size, struct state_files *st, rel_files_t **p, u32 p_size) {
 
-    struct set_rel_files **s = st->suit,
+    rel_files_t **s = st->suit,
             **f = st->favorit;
 
     u32 s_size = st->suit_size,
@@ -5873,16 +6250,18 @@ select_datasets(struct set_rel_files **d, u32 *d_size, struct state_files *st, s
 
 }
 
-EXP_ST u8 common_fuzz_stuff(char **argv, u8 *out_buf, u32 len, struct set_rel_files **ds, u32 ds_size) {
+EXP_ST u8 common_fuzz_stuff(char **argv, u8 *out_buf, u32 len, rel_files_t **ds, u32 ds_size, u32 *num_exec_mutation) {
 
-    u32 ret = 1;
+    u32 ret = 0;
 
     if (ds_size) {
-
-        for (u32 i = 0; i < ds_size; i++)
-            ret *= common_fuzz_stuff_1(argv, out_buf, len, ds[i]);
-
-    } else ret *= common_fuzz_stuff_1(argv, out_buf, len, NULL);
+        for (u32 i = 0; i < ds_size; i++) {
+            ds[i]->num_exec_mutations++;
+            afl_state[cur_index].num_executed_mutations++;
+            ret += common_fuzz_stuff_1(argv, out_buf, len, ds[i]);
+        }
+    } else
+        ret += common_fuzz_stuff_1(argv, out_buf, len, NULL);
 
     return ret;
 }
@@ -6025,7 +6404,7 @@ static u8 could_be_bitflip(u32 xor_val) {
 
     if (!xor_val) return 1;
 
-    /* Shift left until first bit set. */
+    /* Shift left until bitmap_id bit set. */
 
     while (!(xor_val & 1)) {
         sh++;
@@ -6233,9 +6612,9 @@ static u8 fuzz_one(char **argv) {
 
     struct state_files *st = afl_state + cur_index;
 
-    struct set_rel_files *ds[2 * MAX_SIZE_SUIT + 10];
-
-    u32 ds_size = 0;
+    rel_files_t *ds[2 * MAX_SIZE_SUIT + 10];
+    u32 ds_size = 0,
+        num_exec_mutations = 0;
 
 #ifdef IGNORE_FINDS
 
@@ -6428,7 +6807,9 @@ static u8 fuzz_one(char **argv) {
 
         FLIP_BIT(out_buf, stage_cur);
 
-        if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size)) goto abandon_entry;
+        num_exec_mutations++;
+
+        if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size, &num_exec_mutations)) goto abandon_entry;
 
         FLIP_BIT(out_buf, stage_cur);
 
@@ -6521,7 +6902,8 @@ static u8 fuzz_one(char **argv) {
         FLIP_BIT(out_buf, stage_cur);
         FLIP_BIT(out_buf, stage_cur + 1);
 
-        if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size)) goto abandon_entry;
+        num_exec_mutations++;
+        if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size, &num_exec_mutations)) goto abandon_entry;
 
         FLIP_BIT(out_buf, stage_cur);
         FLIP_BIT(out_buf, stage_cur + 1);
@@ -6550,7 +6932,8 @@ static u8 fuzz_one(char **argv) {
         FLIP_BIT(out_buf, stage_cur + 2);
         FLIP_BIT(out_buf, stage_cur + 3);
 
-        if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size)) goto abandon_entry;
+        num_exec_mutations++;
+        if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size, &num_exec_mutations)) goto abandon_entry;
 
         FLIP_BIT(out_buf, stage_cur);
         FLIP_BIT(out_buf, stage_cur + 1);
@@ -6578,7 +6961,7 @@ static u8 fuzz_one(char **argv) {
 #define EFF_SPAN_ALEN(_p, _l) (EFF_APOS((_p) + (_l) - 1) - EFF_APOS(_p) + 1)
 
     /* Initialize effector map for the next step (see comments below). Always
-     flag first and last byte as doing something. */
+     flag bitmap_id and last byte as doing something. */
 
     eff_map = ck_alloc(EFF_ALEN(len));
     eff_map[0] = 1;
@@ -6602,7 +6985,8 @@ static u8 fuzz_one(char **argv) {
 
         out_buf[stage_cur] ^= 0xFF;
 
-        if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size)) goto abandon_entry;
+        num_exec_mutations++;
+        if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size, &num_exec_mutations)) goto abandon_entry;
 
         /* We also use this stage to pull off a simple trick: we identify
        bytes that seem to have no effect on the current execution path
@@ -6680,7 +7064,8 @@ static u8 fuzz_one(char **argv) {
 
         *(u16 *) (out_buf + i) ^= 0xFFFF;
 
-        if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size)) goto abandon_entry;
+        num_exec_mutations++;
+        if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size, &num_exec_mutations)) goto abandon_entry;
         stage_cur++;
 
         *(u16 *) (out_buf + i) ^= 0xFFFF;
@@ -6717,7 +7102,8 @@ static u8 fuzz_one(char **argv) {
 
         *(u32 *) (out_buf + i) ^= 0xFFFFFFFF;
 
-        if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size)) goto abandon_entry;
+        num_exec_mutations++;
+        if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size, &num_exec_mutations)) goto abandon_entry;
         stage_cur++;
 
         *(u32 *) (out_buf + i) ^= 0xFFFFFFFF;
@@ -6773,7 +7159,8 @@ static u8 fuzz_one(char **argv) {
                 stage_cur_val = j;
                 out_buf[i] = orig + j;
 
-                if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size)) goto abandon_entry;
+                num_exec_mutations++;
+                if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size, &num_exec_mutations)) goto abandon_entry;
                 stage_cur++;
 
             } else stage_max--;
@@ -6785,7 +7172,8 @@ static u8 fuzz_one(char **argv) {
                 stage_cur_val = -j;
                 out_buf[i] = orig - j;
 
-                if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size)) goto abandon_entry;
+                num_exec_mutations++;
+                if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size, &num_exec_mutations)) goto abandon_entry;
                 stage_cur++;
 
             } else stage_max--;
@@ -6832,7 +7220,7 @@ static u8 fuzz_one(char **argv) {
                     r3 = orig ^SWAP16(SWAP16(orig) + j),
                     r4 = orig ^SWAP16(SWAP16(orig) - j);
 
-            /* Try little endian addition and subtraction first. Do it only
+            /* Try little endian addition and subtraction bitmap_id. Do it only
          if the operation would affect more than one byte (hence the
          & 0xff overflow checks) and if it couldn't be a product of
          a bitflip. */
@@ -6844,7 +7232,8 @@ static u8 fuzz_one(char **argv) {
                 stage_cur_val = j;
                 *(u16 *) (out_buf + i) = orig + j;
 
-                if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size)) goto abandon_entry;
+                num_exec_mutations++;
+                if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size, &num_exec_mutations)) goto abandon_entry;
                 stage_cur++;
 
             } else stage_max--;
@@ -6854,7 +7243,8 @@ static u8 fuzz_one(char **argv) {
                 stage_cur_val = -j;
                 *(u16 *) (out_buf + i) = orig - j;
 
-                if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size)) goto abandon_entry;
+                num_exec_mutations++;
+                if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size, &num_exec_mutations)) goto abandon_entry;
                 stage_cur++;
 
             } else stage_max--;
@@ -6869,7 +7259,8 @@ static u8 fuzz_one(char **argv) {
                 stage_cur_val = j;
                 *(u16 *) (out_buf + i) = SWAP16(SWAP16(orig) + j);
 
-                if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size)) goto abandon_entry;
+                num_exec_mutations++;
+                if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size, &num_exec_mutations)) goto abandon_entry;
                 stage_cur++;
 
             } else stage_max--;
@@ -6879,7 +7270,8 @@ static u8 fuzz_one(char **argv) {
                 stage_cur_val = -j;
                 *(u16 *) (out_buf + i) = SWAP16(SWAP16(orig) - j);
 
-                if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size)) goto abandon_entry;
+                num_exec_mutations++;
+                if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size, &num_exec_mutations)) goto abandon_entry;
                 stage_cur++;
 
             } else stage_max--;
@@ -6927,7 +7319,7 @@ static u8 fuzz_one(char **argv) {
                     r3 = orig ^SWAP32(SWAP32(orig) + j),
                     r4 = orig ^SWAP32(SWAP32(orig) - j);
 
-            /* Little endian first. Same deal as with 16-bit: we only want to
+            /* Little endian bitmap_id. Same deal as with 16-bit: we only want to
          try if the operation would have effect on more than two bytes. */
 
             stage_val_type = STAGE_VAL_LE;
@@ -6937,7 +7329,8 @@ static u8 fuzz_one(char **argv) {
                 stage_cur_val = j;
                 *(u32 *) (out_buf + i) = orig + j;
 
-                if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size)) goto abandon_entry;
+                num_exec_mutations++;
+                if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size, &num_exec_mutations)) goto abandon_entry;
                 stage_cur++;
 
             } else stage_max--;
@@ -6947,7 +7340,8 @@ static u8 fuzz_one(char **argv) {
                 stage_cur_val = -j;
                 *(u32 *) (out_buf + i) = orig - j;
 
-                if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size)) goto abandon_entry;
+                num_exec_mutations++;
+                if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size, &num_exec_mutations)) goto abandon_entry;
                 stage_cur++;
 
             } else stage_max--;
@@ -6961,7 +7355,8 @@ static u8 fuzz_one(char **argv) {
                 stage_cur_val = j;
                 *(u32 *) (out_buf + i) = SWAP32(SWAP32(orig) + j);
 
-                if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size)) goto abandon_entry;
+                num_exec_mutations++;
+                if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size, &num_exec_mutations)) goto abandon_entry;
                 stage_cur++;
 
             } else stage_max--;
@@ -6971,7 +7366,8 @@ static u8 fuzz_one(char **argv) {
                 stage_cur_val = -j;
                 *(u32 *) (out_buf + i) = SWAP32(SWAP32(orig) - j);
 
-                if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size)) goto abandon_entry;
+                num_exec_mutations++;
+                if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size, &num_exec_mutations)) goto abandon_entry;
                 stage_cur++;
 
             } else stage_max--;
@@ -7030,7 +7426,8 @@ static u8 fuzz_one(char **argv) {
             stage_cur_val = interesting_8[j];
             out_buf[i] = interesting_8[j];
 
-            if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size)) goto abandon_entry;
+            num_exec_mutations++;
+            if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size, &num_exec_mutations)) goto abandon_entry;
 
             out_buf[i] = orig;
             stage_cur++;
@@ -7083,7 +7480,8 @@ static u8 fuzz_one(char **argv) {
 
                 *(u16 *) (out_buf + i) = interesting_16[j];
 
-                if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size)) goto abandon_entry;
+                num_exec_mutations++;
+                if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size, &num_exec_mutations)) goto abandon_entry;
                 stage_cur++;
 
             } else stage_max--;
@@ -7096,7 +7494,9 @@ static u8 fuzz_one(char **argv) {
                 stage_val_type = STAGE_VAL_BE;
 
                 *(u16 *) (out_buf + i) = SWAP16(interesting_16[j]);
-                if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size)) goto abandon_entry;
+
+                num_exec_mutations++;
+                if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size, &num_exec_mutations)) goto abandon_entry;
                 stage_cur++;
 
             } else stage_max--;
@@ -7152,7 +7552,8 @@ static u8 fuzz_one(char **argv) {
 
                 *(u32 *) (out_buf + i) = interesting_32[j];
 
-                if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size)) goto abandon_entry;
+                num_exec_mutations++;
+                if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size, &num_exec_mutations)) goto abandon_entry;
                 stage_cur++;
 
             } else stage_max--;
@@ -7165,7 +7566,9 @@ static u8 fuzz_one(char **argv) {
                 stage_val_type = STAGE_VAL_BE;
 
                 *(u32 *) (out_buf + i) = SWAP32(interesting_32[j]);
-                if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size)) goto abandon_entry;
+
+                num_exec_mutations++;
+                if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size, &num_exec_mutations)) goto abandon_entry;
                 stage_cur++;
 
             } else stage_max--;
@@ -7231,7 +7634,8 @@ static u8 fuzz_one(char **argv) {
             last_len = extras[j].len;
             memcpy(out_buf + i, extras[j].data, last_len);
 
-            if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size)) goto abandon_entry;
+            num_exec_mutations++;
+            if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size, &num_exec_mutations)) goto abandon_entry;
 
             stage_cur++;
 
@@ -7275,7 +7679,8 @@ static u8 fuzz_one(char **argv) {
             /* Copy tail */
             memcpy(ex_tmp + i + extras[j].len, out_buf + i, len - i);
 
-            if (common_fuzz_stuff(argv, ex_tmp, len + extras[j].len, ds, ds_size)) {
+            num_exec_mutations++;
+            if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size, &num_exec_mutations)) {
                 ck_free(ex_tmp);
                 goto abandon_entry;
             }
@@ -7331,7 +7736,8 @@ static u8 fuzz_one(char **argv) {
             last_len = a_extras[j].len;
             memcpy(out_buf + i, a_extras[j].data, last_len);
 
-            if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size)) goto abandon_entry;
+            num_exec_mutations++;
+            if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size, &num_exec_mutations)) goto abandon_entry;
 
             stage_cur++;
 
@@ -7778,7 +8184,8 @@ static u8 fuzz_one(char **argv) {
 
         }
 
-        if (common_fuzz_stuff(argv, out_buf, temp_len, ds, ds_size))
+        num_exec_mutations++;
+        if (common_fuzz_stuff(argv, out_buf, len, ds, ds_size, &num_exec_mutations))
             goto abandon_entry;
 
         /* out_buf might have been mangled a bit, so let's restore it to its
@@ -7880,7 +8287,7 @@ static u8 fuzz_one(char **argv) {
         if (target->set_rel_fls != NULL)
             replenishment(ds, &ds_size, &target->set_rel_fls, 1);
 
-        /* Find a suitable splicing location, somewhere between the first and
+        /* Find a suitable splicing location, somewhere between the bitmap_id and
        the last differing byte. Bail out if the difference is just a single
        byte or so. */
 
@@ -7891,7 +8298,7 @@ static u8 fuzz_one(char **argv) {
             goto retry_splicing;
         }
 
-        /* Split somewhere between the first and last differing byte. */
+        /* Split somewhere between the bitmap_id and last differing byte. */
 
         split_at = f_diff + UR(l_diff - f_diff);
 
@@ -8054,7 +8461,7 @@ static void sync_fuzzers(char **argv) {
                 syncing_party = sd_ent->d_name;
 
                 if (!cur_index) {
-                    struct set_rel_files *c = NULL;
+                    rel_files_t *c = NULL;
                     queued_imported += save_if_interesting(argv, mem, st.st_size, c, fault);
                 }
                 syncing_party = 0;
@@ -9301,9 +9708,12 @@ int main(int argc, char **argv) {
 
                 if (mode) FATAL("Multiple -c options not supported");
                 mode = optarg;
-                if (!strcmp(mode, "min_cov")) type_mode = 0;
-                if (!strcmp(mode, "max_cov")) type_mode = 1;
-                if (!strcmp(mode, "rand_cov")) type_mode = 2;
+                type_mode = ENTROPY;
+                if (!strcmp(mode, "min_cov")) type_mode = MIN_COV;
+                if (!strcmp(mode, "max_cov")) type_mode = MAX_COV;
+                if (!strcmp(mode, "rand_cov")) type_mode = RAND_COV;
+                if (!strcmp(mode, "entropy")) type_mode = ENTROPY;
+
                 ACTF("I use mode %s %d", mode, type_mode);
                 break;
             }
@@ -9401,6 +9811,24 @@ int main(int argc, char **argv) {
     else
         use_argv = argv + optind;
 
+    if (type_mode == ENTROPY) {
+        struct state_files *st = afl_state + 1;
+        entropy.enable = 1;
+        entropy.num_of_rarest_bitmap = 100;
+        entropy.freq_threshold = 0xff;
+
+        st->freq_of_most_abd_rare_bitmap = 0;
+        st->global_freqs = hash_table_create(double_hash, int_equal, free, free);
+        st->rare_bitmaps = array_create(0, 1, sizeof(u32));
+
+        st->max_mutation_factor = 20;
+        st->sparse_energy_updates = 100;
+        st->num_executed_mutations = 0;
+        st->distr_needs_update = 1;
+
+
+    }
+
     perform_dry_run(use_argv);
 
     log_in_file();
@@ -9475,12 +9903,10 @@ int main(int argc, char **argv) {
 
         cull_queue();
 
-        s = &afl_state[cur_index];
+        s = afl_state + cur_index;
 
         if (!s->prev_skip)
-            suit_rel_fls(s->suit, &s->suit_size,
-                         s->sets_rel_fls, s->sets_rel_fls_size,
-                         &s->reset);
+            suit_rel_fls(s);
 
         if (!queue_cur) {
 
@@ -9519,6 +9945,9 @@ int main(int argc, char **argv) {
         }
 
         s->prev_skip = skipped_fuzz = fuzz_one(use_argv);
+
+        if (entropy.enable)
+            update_corpus_distr(s->sets_rel_fls, s->sets_rel_fls_size);
 
         if (!s->prev_skip)
             favorit_sets_rel_fls(s->favorit, &s->favorit_size,
@@ -9564,8 +9993,15 @@ int main(int argc, char **argv) {
         WARNF("error waitpid\n");
     }
 
-    write_bitmap();
+    u8 *fn_bitmap = alloc_printf("%s/fuzz_bitmap", afl_state[0].out_dir);
+    write_bitmap(fn_bitmap, virgin_bits);
 
+    bitmap_changed = 1;
+    u8 *fn_crash = alloc_printf("%s/fuzz_bitmap_crash", afl_state[0].out_dir);
+    write_bitmap(fn_crash, virgin_crash);
+
+    ck_free(fn_crash);
+    ck_free(fn_bitmap);
     write_stats_file(0, 0, 0);
 
     save_auto();
@@ -9578,7 +10014,7 @@ int main(int argc, char **argv) {
                  cRST,
          stop_soon == 2 ? "programmatically" : "by user");
 
-/* Running for more than 30 minutes but still doing first cycle? */
+/* Running for more than 30 minutes but still doing bitmap_id cycle? */
 
     if (queue_cycle == 1 &&
 
@@ -9590,7 +10026,7 @@ int main(int argc, char **argv) {
                      cYEL
                      "[!] "
                      cRST
-                     "Stopped during the first cycle, results may be incomplete.\n"
+                     "Stopped during the bitmap_id cycle, results may be incomplete.\n"
                      "    (For info on resuming, see %s/README.)\n", doc_path);
 
     }

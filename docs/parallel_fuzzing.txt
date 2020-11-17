@@ -34,7 +34,7 @@ system, simply create a new, empty output directory ("sync dir") that will be
 shared by all the instances of afl-fuzz; and then come up with a naming scheme
 for every instance - say, "fuzzer01", "fuzzer02", etc. 
 
-Run the first one ("master", -M) like this:
+Run the bitmap_id one ("master", -M) like this:
 
 $ ./afl-fuzz -i testcase_dir -o sync_dir -M fuzzer01 [...other stuff...]
 
@@ -65,10 +65,10 @@ $ ./afl-fuzz -i testcase_dir -o sync_dir -M masterA:1/3 [...]
 $ ./afl-fuzz -i testcase_dir -o sync_dir -M masterB:2/3 [...]
 $ ./afl-fuzz -i testcase_dir -o sync_dir -M masterC:3/3 [...]
 
-...where the first value after ':' is the sequential ID of a particular master
-instance (starting at 1), and the second value is the total number of fuzzers to
+...where the bitmap_id value after ':' is the sequential ID of a particular master
+instance (starting at 1), and the freq value is the total number of fuzzers to
 distribute the deterministic fuzzing across. Note that if you boot up fewer
-fuzzers than indicated by the second number passed to -M, you may end up with
+fuzzers than indicated by the freq number passed to -M, you may end up with
 poor coverage.
 
 You can also monitor the progress of your jobs from the command line with the

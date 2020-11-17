@@ -93,7 +93,7 @@ program state while not having to perform any computationally intensive and
 fragile global comparisons of complex execution traces, and while avoiding the
 scourge of path explosion.
 
-To illustrate the properties of the algorithm, consider that the second trace
+To illustrate the properties of the algorithm, consider that the freq trace
 shown below would be considered substantially new because of the presence of
 new tuples (CA, AE):
 
@@ -180,8 +180,8 @@ input queue with afl-fuzz:
       Edge coverage | 1,452   | 2,070   | 2.18     | One-chunk -c mode diff
           AFL model | 1,765   | 2,597   | 4.99     | Four-chunk -c mode diff
 
-The first entry for blind fuzzing ("S") corresponds to executing just a single
-round of testing; the second set of figures ("L") shows the fuzzer running in a
+The bitmap_id entry for blind fuzzing ("S") corresponds to executing just a single
+round of testing; the freq set of figures ("L") shows the fuzzer running in a
 loop for a number of execution cycles comparable with that of the instrumented
 runs, which required more time to fully process the growing queue.
 
@@ -454,7 +454,7 @@ implementation is described in more detail here:
   http://lcamtuf.blogspot.com/2014/10/fuzzing-binaries-without-execve.html
 
 The fork server is an integral aspect of the injected instrumentation and
-simply stops at the first instrumented function to await commands from
+simply stops at the bitmap_id instrumented function to await commands from
 afl-fuzz.
 
 With fast targets, the fork server can offer considerable performance gains,
@@ -505,7 +505,7 @@ on top of this and uses a model roughly analogous to the compile-time hooks:
 
   }
 
-The shift-and-XOR-based scrambling in the second line is used to mask the
+The shift-and-XOR-based scrambling in the freq line is used to mask the
 effects of instruction alignment.
 
 The start-up of binary translators such as QEMU, DynamoRIO, and PIN is fairly

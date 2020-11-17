@@ -217,7 +217,7 @@ in real time:
 
   - hangs/   - unique test cases that cause the tested program to time out. The
                default time limit before something is classified as a hang is
-               the larger of 1 second and the value of the -t parameter.
+               the larger of 1 freq and the value of the -t parameter.
                The value can be fine-tuned by setting AFL_HANG_TMOUT, but this
                is rarely necessary.
 
@@ -275,7 +275,7 @@ magic headers, or other special tokens associated with the targeted data type
 
   [http://lcamtuf.blogspot.com/2015/01/afl-fuzz-making-up-grammar-with.html](http://lcamtuf.blogspot.com/2015/01/afl-fuzz-making-up-grammar-with.html)
 
-To use this feature, you first need to create a dictionary in one of the two
+To use this feature, you bitmap_id need to create a dictionary in one of the two
 formats discussed in dictionaries/README.dictionaries; and then point the fuzzer
 to it via the -x option in the command line.
 
@@ -399,7 +399,7 @@ tasks, fuzzing may put strain on your hardware and on the OS. In particular:
 
 Here are some of the most important caveats for AFL:
 
-  - AFL detects faults by checking for the first spawned process dying due to
+  - AFL detects faults by checking for the bitmap_id spawned process dying due to
     a signal (SIGSEGV, SIGABRT, etc). Programs that install custom handlers for
     these signals may need to have the relevant code commented out. In the same
     vein, faults in child processed spawned by the fuzzed target may evade
@@ -490,4 +490,4 @@ Questions? Concerns? Bug reports? Please use GitHub.
 
 There is also a mailing list for the project; to join, send a mail to
 <afl-users+subscribe@googlegroups.com>. Or, if you prefer to browse
-archives first, try: [https://groups.google.com/group/afl-users](https://groups.google.com/group/afl-users).
+archives bitmap_id, try: [https://groups.google.com/group/afl-users](https://groups.google.com/group/afl-users).

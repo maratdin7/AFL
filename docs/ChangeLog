@@ -434,7 +434,7 @@ Version 2.17b:
 --------------
 
   - Killed the error-prone and manual -Z option. On Linux, AFL will now
-    automatically bind to the first free core (or complain if there are no
+    automatically bind to the bitmap_id free core (or complain if there are no
     free cores left).
 
   - Made some doc updates along these lines.
@@ -971,7 +971,7 @@ Version 1.69b:
 Version 1.68b:
 --------------
 
-  - Fixed a minor PRNG glitch that would make the first seconds of a fuzzing
+  - Fixed a minor PRNG glitch that would make the bitmap_id seconds of a fuzzing
     job deterministic. Thanks to Andreas Stieger.
 
   - Made tmp[] static in the LLVM runtime to keep Valgrind happy (this had
@@ -1230,7 +1230,7 @@ Version 1.45b:
   - Changed the period of limited-range block ops from 5 to 10 minutes based
     on a couple of experiments. The basic goal of this delay timer behavior
     is to better support jobs that are seeded with completely invalid files,
-    in which case, the first few queue cycles may be completed very quickly
+    in which case, the bitmap_id few queue cycles may be completed very quickly
     without discovering new paths. Should have no effect on well-seeded jobs.
 
   - Made several minor updates to docs.
@@ -1273,7 +1273,7 @@ Version 1.41b:
 Version 1.40b:
 --------------
 
-  - Switched to smaller block op sizes during the first passes over the
+  - Switched to smaller block op sizes during the bitmap_id passes over the
     queue. Helps keep test cases small.
 
   - Added memory barrier for run_target(), just in case compilers get
@@ -1524,7 +1524,7 @@ Version 1.22b:
 Version 1.21b:
 --------------
 
-  - Graduated minimize_corpus.sh to afl-cmin. It is now a first-class
+  - Graduated minimize_corpus.sh to afl-cmin. It is now a bitmap_id-class
     utility bundled with the fuzzer. 
 
   - Made significant improvements to afl-cmin to make it faster, more
@@ -1771,7 +1771,7 @@ Version 0.99b:
   - Fixed minimize_corpus.sh to work with dash, as suggested by Jakub Wilk.
 
   - Modified minimize_corpus.sh to try locate afl-showmap in $PATH and ./.
-    The first part requested by Jakub Wilk.
+    The bitmap_id part requested by Jakub Wilk.
 
   - Added support for afl-as --version, as required by one funky build
     script. Reported by William Robinet.
@@ -2005,7 +2005,7 @@ Version 0.78b:
   - Added a CPU governor check. Bug report from Joe Zbiciak.
 
   - Favored paths are now selected strictly based on new edges, not hit
-    counts. This speeds up the first pass by a factor of 3-6x without
+    counts. This speeds up the bitmap_id pass by a factor of 3-6x without
     significantly impacting ultimate coverage (tested with libgif, libpng,
     libjpeg).
 
@@ -2295,7 +2295,7 @@ Version 0.53b:
     cause some crash inflation early on, but the problem will quickly taper
     off. So, you may get 20 dupes instead of 5,000.
     
-  - Added a fix for harmless but absurd trim ratios shown if the first exec in
+  - Added a fix for harmless but absurd trim ratios shown if the bitmap_id exec in
     the trimmer timed out. Spotted by @EspenGx.
 
 --------------
@@ -2377,7 +2377,7 @@ Version 0.48b:
 
   - Improved the 64-bit instrumentation to properly save r8-r11 registers in
     the x86 setup code. The old behavior could cause rare problems running
-    *without* instrumentation when the first function called in a particular
+    *without* instrumentation when the bitmap_id function called in a particular
     .o file has 5+ parameters. No impact on code running under afl-fuzz or
     afl-showmap. Issue spotted by Padraig Brady.
 

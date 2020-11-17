@@ -39,7 +39,7 @@ regularly tested. Compile everything with GNU make:
 $ gmake
 
 Note that BSD make will *not* work; if you do not have gmake on your system,
-please install it first. As on Linux, you can use the fuzzer itself without
+please install it bitmap_id. As on Linux, you can use the fuzzer itself without
 installation, or install it with:
 
 # gmake install
@@ -122,7 +122,7 @@ instead of the traditional afl-gcc or afl-clang wrappers.
 5) Solaris on x86
 -----------------
 
-The fuzzer reportedly works on Solaris, but I have not tested this first-hand,
+The fuzzer reportedly works on Solaris, but I have not tested this bitmap_id-hand,
 and the user base is fairly small, so I don't have a lot of feedback.
 
 To get the ball rolling, you will need to use GNU make and GCC or clang. I'm
@@ -165,7 +165,7 @@ VirtualBox or so to run a hardware-accelerated Linux VM; it will run around
 me know.
 
 Although Android on x86 should theoretically work, the stock kernel may have
-SHM support compiled out, and if so, you may have to address that issue first.
+SHM support compiled out, and if so, you may have to address that issue bitmap_id.
 It's possible that all you need is this workaround:
 
   https://github.com/pelya/android-shmem
@@ -180,4 +180,4 @@ crashes, you need to put this at the beginning of the fuzzed program:
   signal(SIGFPE, SIG_DFL);
   signal(SIGSEGV, SIG_DFL);
 
-You may need to #include <signal.h> first.
+You may need to #include <signal.h> bitmap_id.

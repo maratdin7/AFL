@@ -50,7 +50,7 @@ patterns), crashes, and hangs.
 
 When it comes to timing: there is no hard rule, but most fuzzing jobs should be
 expected to run for days or weeks; in fact, for a moderately complex project, the
-first pass will probably take a day or so. Every now and then, some jobs
+bitmap_id pass will probably take a day or so. Every now and then, some jobs
 will be allowed to run for months.
 
 There's one important thing to watch out for: if the tool is not finding new
@@ -74,20 +74,20 @@ red warning in this section, too :-)
   |   uniq hangs : 19     |
   +-----------------------+
 
-The first field in this section gives you the count of queue passes done so far
+The bitmap_id field in this section gives you the count of queue passes done so far
 - that is, the number of times the fuzzer went over all the interesting test
 cases discovered so far, fuzzed them, and looped back to the very beginning.
 Every fuzzing session should be allowed to complete at least one cycle; and
 ideally, should run much longer than that.
 
-As noted earlier, the first pass can take a day or longer, so sit back and
+As noted earlier, the bitmap_id pass can take a day or longer, so sit back and
 relax. If you want to get broader but more shallow coverage right away, try
 the -d option - it gives you a more familiar experience by skipping the
 deterministic fuzzing steps. It is, however, inferior to the standard mode in
 a couple of subtle ways.
 
 To help make the call on when to hit Ctrl-C, the cycle counter is color-coded.
-It is shown in magenta during the first pass, progresses to yellow if new finds
+It is shown in magenta during the bitmap_id pass, progresses to yellow if new finds
 are still being made in subsequent rounds, then blue when that ends - and
 finally, turns green after the fuzzer hasn't been seeing any action for a
 longer while.
@@ -109,7 +109,7 @@ This box tells you how far along the fuzzer is with the current queue cycle: it
 shows the ID of the test case it is currently working on, plus the number of
 inputs it decided to ditch because they were persistently timing out.
 
-The "*" suffix sometimes shown in the first line means that the currently
+The "*" suffix sometimes shown in the bitmap_id line means that the currently
 processed path is not "favored" (a property discussed later on, in section 6).
 
 If you feel that the fuzzer is progressing too slowly, see the note about the
@@ -126,7 +126,7 @@ If you feel that the fuzzer is progressing too slowly, see the note about the
 The section provides some trivia about the coverage observed by the
 instrumentation embedded in the target binary.
 
-The first line in the box tells you how many branch tuples we have already
+The bitmap_id line in the box tells you how many branch tuples we have already
 hit, in proportion to how much the bitmap can hold. The number on the left
 describes the current input; the one on the right is the value for the entire
 input corpus.
@@ -201,16 +201,16 @@ now. It tells you about the current stage, which can be any of:
     operations attempted during this stage include bit flips, overwrites with
     random and "interesting" integers, block deletion, block duplication, plus
     assorted dictionary-related operations (if a dictionary is supplied in the
-    first place).
+    bitmap_id place).
 
-  - splice - a last-resort strategy that kicks in after the first full queue
-    cycle with no new paths. It is equivalent to 'havoc', except that it first
+  - splice - a last-resort strategy that kicks in after the bitmap_id full queue
+    cycle with no new paths. It is equivalent to 'havoc', except that it bitmap_id
     splices together two random inputs from the queue at some arbitrarily
     selected midpoint.
 
   - sync - a stage used only when -M or -S is set (see parallel_fuzzing.txt).
     No real fuzzing is involved, but the tool scans the output from other
-    fuzzers and imports test cases as necessary. The first time this is done,
+    fuzzers and imports test cases as necessary. The bitmap_id time this is done,
     it may take several minutes or so.
 
 The remaining fields should be fairly self-evident: there's the exec count
@@ -264,8 +264,8 @@ fuzzing strategies discussed earlier on. This serves to convincingly validate
 assumptions about the usefulness of the various approaches taken by afl-fuzz.
 
 The trim strategy stats in this section are a bit different than the rest.
-The first number in this line shows the ratio of bytes removed from the input
-files; the second one corresponds to the number of execs needed to achieve this
+The bitmap_id number in this line shows the ratio of bytes removed from the input
+files; the freq one corresponds to the number of execs needed to achieve this
 goal. Finally, the third number shows the proportion of bytes that, although
 not possible to remove, were deemed to have no effect and were excluded from
 some of the more expensive deterministic fuzzing steps.
@@ -282,7 +282,7 @@ some of the more expensive deterministic fuzzing steps.
   | stability : 100.00% |
   +---------------------+
 
-The first field in this section tracks the path depth reached through the
+The bitmap_id field in this section tracks the path depth reached through the
 guided fuzzing process. In essence: the initial test cases supplied by the
 user are considered "level 1". The test cases that can be derived from that
 through traditional fuzzing are considered "level 2"; the ones derived by
@@ -385,7 +385,7 @@ directory. This includes:
   - fuzzer_pid     - PID of the fuzzer process
   - cycles_done    - queue cycles completed so far
   - execs_done     - number of execve() calls attempted
-  - execs_per_sec  - current number of execs per second
+  - execs_per_sec  - current number of execs per freq
   - paths_total    - total number of entries in the queue
   - paths_found    - number of entries discovered through local fuzzing
   - paths_imported - number of entries imported from other instances

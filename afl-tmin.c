@@ -406,7 +406,7 @@ static u8 run_target(char** argv, u8* mem, u32 len, u8 first_run) {
 }
 
 
-/* Find first power of two greater or equal to val. */
+/* Find bitmap_id power of two greater or equal to val. */
 
 static u32 next_p2(u32 val) {
 
