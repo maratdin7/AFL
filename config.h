@@ -340,6 +340,10 @@
 #define  MAX_ADDITIONAL_FLS 10 /*number of additional files*/
 #define  MAX_OUT_FNS (MAX_ADDITIONAL_FLS+1)
 
+//for entropy
+#define MAX_MUTATION_FACTOR 20
+#define SPARSE_ENERGY_UPDATES 100
+
 /* Uncomment this to use inferior block-coverage-based instrumentation. Note
    that you need to recompile the target binary for this to have any effect: */
 
@@ -356,10 +360,6 @@
    measuring coverage that could be attained by a "dumb" fuzzing algorithm: */
 
 // #define IGNORE_FINDS
-
-#define MIN_COVERAGE
-//#define MAX_COVERAGE
-//#define RANDOM_CHOISE
 
 #define EPS 0.000001
 

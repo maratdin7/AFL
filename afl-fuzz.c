@@ -195,16 +195,12 @@ struct state_files {
             suit_size;
     u32 reset, prev_skip;
 
-    array_t *rare_bitmaps;
+    ptr_array_t *rare_bitmaps;
     ptr_array_t *weights;
 
     hash_table_t *global_freqs;
 
     u32 freq_of_most_abd_rare_bitmap;
-
-    u8 max_mutation_factor;
-    u32 sparse_energy_updates;
-
 
     u32 distr_needs_update;
     u32 num_executed_mutations;
@@ -337,7 +333,9 @@ useless_at_start,          /* Number of useless starting paths */
 var_byte_count,            /* Bitmap bytes with var behavior   */
 current_entry,             /* Current queue entry ID           */
 havoc_div = 1,             /* Cycle count divisor for havoc    */
-type_mode = 0;
+type_mode = 0,
+        change_mode_def = 0;
+
 
 EXP_ST u64 total_crashes,  /* Total number of crashes          */
 unique_crashes,            /* Crashes with unique signatures   */
@@ -554,7 +552,7 @@ bitmap_id_freq_t *set_bitmap_id_freq(void *p, u32 f, u32 s) {
 weight_seed_t *set_weight_seed(void *weight_seed, u32 index, double weight) {
     weight_seed_t *ws = (weight_seed_t *) weight_seed;
     if (ws == NULL)
-        ws = ck_alloc(sizeof(weight_seed_t *));
+        ws = malloc(sizeof(weight_seed_t *));
 
     ws->i = index;
     ws->weight = weight;
@@ -632,38 +630,114 @@ void update_bitmap_freq_local(rel_files_t *s, u32 val) {
     }
 }
 
-void add_rare_bitmap(rel_files_t **s, u32 s_size, u32 key) {
+void debug_entropy(ptr_array_t *rare_bitmaps, hash_table_t *global_freqs) {
 
-    struct state_files *st = afl_state + cur_index;
+    GHashTableIter iter;
+    u32 *key, *value;
+    u32 cond, i = 0, size;
+
+    g_hash_table_iter_init(&iter, global_freqs);
+
+    size = g_hash_table_size(global_freqs);
+    LOG("Start debug_entropy\n\tglobal_freqs %d\trare_bitmaps\n", size);
+
+    while (1) {
+        cond = 0;
+        if (!g_hash_table_iter_next(&iter, (void **) &key, (void **) &value))
+            cond = 1;
+
+        if (i >= rare_bitmaps->len)
+            cond += 2;
+
+        u32 k, v, r;
+        switch (cond) {
+            case 0: {
+                k = *key;
+                v = *value;
+                r = *(u32 *) (ptr_array_index(rare_bitmaps, i));
+                break;
+            }
+            case 1: {
+                k = 0;
+                v = 0;
+                r = *(u32 *) (ptr_array_index(rare_bitmaps, i));
+                break;
+            }
+            case 2: {
+                k = *(u32 *) key;
+                v = *(u32 *) value;
+                r = 0;
+                break;
+            }
+        }
+        if (cond == 3)
+            break;
+        i++;
+        LOG("%12u %5d | %12u", k, v, r);
+    }
+    LOG("Stop debug_entropy");
+
+}
+
+void add_rare_bitmap(struct state_files *st, u32 key) {
+
+    if (hash_table_get(st->global_freqs, &key) != NULL)
+        return;
+
+    //debug_entropy(st->rare_bitmaps, st->global_freqs);
+
+    rel_files_t **s = st->sets_rel_fls;
+    u32 s_size = st->sets_rel_fls_size;
+
+    u32 j = 0;
 
     while (st->rare_bitmaps->len > entropy.num_of_rarest_bitmap &&
            st->freq_of_most_abd_rare_bitmap > entropy.freq_threshold) {
 
-        u32 cur_key = *array_index(st->rare_bitmaps, u32, 0);
-        u32 most_abudante_key[2] = {cur_key,
-                                    cur_key
-        };
+        u32 *cur_key,
+                *max_freq,
+                delete;
 
-        u32 delete = 0;
+        cur_key = (u32 *) ptr_array_index(st->rare_bitmaps, 0);
+
+        u32 most_abudante_key[2] = {*cur_key, *cur_key};
+
+        max_freq = most_abudante_key;
+        delete = 0;
 
         for (u32 i = 0; i < st->rare_bitmaps->len; i++) {
-            u32 *f, *most_f;
+            u32 *f;
 
-            cur_key = g_array_index(st->rare_bitmaps, u32, i);
-            f = g_hash_table_lookup(st->global_freqs, (gpointer) &cur_key);
-            most_f = g_hash_table_lookup(st->global_freqs, (gpointer) most_abudante_key);
+            cur_key = (u32 *) ptr_array_index(st->rare_bitmaps, i);
+            f = hash_table_lookup(st->global_freqs, cur_key);
+            //max_freq = hash_table_lookup(st->global_freqs, most_abudante_key);
 
-            if (f == NULL || most_f == NULL)
-                FATAL("global_freqs doesn't contain %d (f %p, most_f %p)", cur_key, f, most_f);
+            if (f == NULL || max_freq == NULL) {
 
-            if (*f >= *most_f) {
+                u32 b =
+                        hash_table_lookup_extended(st->global_freqs,
+                                                     cur_key,
+                                                     NULL,
+                                                     (void **) &f);
+                u32 m =
+                        hash_table_lookup_extended(st->global_freqs,
+                                                     most_abudante_key,
+                                                     NULL, (void **) &max_freq);
+                FATAL("i %d\n\t\tf %p - key %u (%d)\n\t\tmax_freq %p - key %u (%d)",
+                      i, f, *cur_key, b, max_freq, most_abudante_key[0], m);
+            }
+
+            if (*f >= *max_freq) {
+
                 most_abudante_key[1] = most_abudante_key[0];
-                most_abudante_key[0] = cur_key;
+                most_abudante_key[0] = *cur_key;
+
+                *max_freq = *f;
                 delete = i;
             }
         }
 
-        g_array_remove_index_fast(st->rare_bitmaps, delete);
+        ptr_array_remove_index_fast(st->rare_bitmaps, delete);
 
         for (u32 i = 0; i < s_size; i++) {
             if (delete_bitmap_freq(s[i]->bitmap_freq, most_abudante_key[0]))
@@ -671,21 +745,30 @@ void add_rare_bitmap(rel_files_t **s, u32 s_size, u32 key) {
         }
 
         st->freq_of_most_abd_rare_bitmap =
-                *(u32 *) g_hash_table_lookup(st->global_freqs, (gpointer) (most_abudante_key + 1));
+                *(u32 *) hash_table_lookup(st->global_freqs, (gpointer) (most_abudante_key + 1));
 
+        j++;
     }
 
-    g_array_append_val(st->rare_bitmaps, key);
-    u32 *tmp = malloc(sizeof(u32));
-    memcpy(tmp, &key, sizeof(u32));
-    u32 *val = malloc(sizeof(u32));
-    *val = 0;
-    g_hash_table_insert(st->global_freqs, tmp, val);
+    u32 *k, *v;
+
+    k = malloc(sizeof(u32));
+    memcpy(k, &key, sizeof(u32));
+
+    ptr_array_add(st->rare_bitmaps, k);
+
+    k = malloc(sizeof(u32));
+    memcpy(k, &key, sizeof(u32));
+
+    v = calloc(1, sizeof(u32));
+
+    hash_table_insert(st->global_freqs, k, v);
 
     for (u32 i = 0; i < s_size; i++) {
         delete_bitmap_freq(s[i]->bitmap_freq, key);
 
         if (s[i]->energy > 0.0) {
+
             s[i]->sum_incidence += 1;
             s[i]->energy += log(s[i]->sum_incidence) / s[i]->sum_incidence;
         }
@@ -695,18 +778,16 @@ void add_rare_bitmap(rel_files_t **s, u32 s_size, u32 key) {
 
 }
 
-u32 array_find(array_t *array, u32 val) {
+u32 array_find(ptr_array_t *array, u32 val) {
 
     for (u32 i = 0; i < array->len; i++) {
-        if (val == *array_index(array, u32, i))
+        if (val == *(u32 *) ptr_array_index(array, i))
             return i;
     }
     return array->len;
 }
 
-void update_bitmap_freq(rel_files_t *s, u32 key) {
-
-    struct state_files *st = afl_state + cur_index;
+void update_bitmap_freq(struct state_files *st, rel_files_t *s, u32 key) {
 
     u32 *val = hash_table_get(st->global_freqs, &key);
 
@@ -734,35 +815,40 @@ void update_bitmap_freq(rel_files_t *s, u32 key) {
         *tmp = set_weight_seed(*tmp, (i), (w));  \
     } while (0)
 
-void update_corpus_distr(rel_files_t **s, u32 s_size) {
 
-    struct state_files *st = afl_state + cur_index;
+void update_corpus_distr(struct state_files *st) {
+
+    rel_files_t **s = st->sets_rel_fls;
+    u32 s_size = st->sets_rel_fls_size;
 
     if (!st->distr_needs_update &&
-        (!entropy.enable || random() % st->sparse_energy_updates))
+        (!entropy.enable || random() % SPARSE_ENERGY_UPDATES))
         return;
 
     st->distr_needs_update = 0;
 
     if (!s_size)
-        FATAL("set_rel_files ** is empty");
+        return;//FATAL("set_rel_files ** is empty");
 
+    if (st->weights == NULL)
+        st->weights = ptr_array_create(free);
 
     ptr_array_set_size(st->weights, s_size);
-    u32 default_choise = 1;
+    change_mode_def = 1;
 
     if (entropy.enable) {
         for (u32 i = 0; i < s_size; i++) {
             if (s[i]->needs_energy_update && s[i]->energy != 0.0) {
                 s[i]->needs_energy_update = 0;
                 update_energy(s[i], st->rare_bitmaps->len);
+                LOG("Energy %f \n\tfor second file %s", s[i]->energy, s[i]->set[0].fname);
             }
         }
 
         for (u32 i = 0; i < s_size; i++) {
             if (s[i]->bitmap_freq->len == 0) {
                 weights_set_index(st->weights, i, 0.0);
-            } else if (s[i]->num_exec_mutations / st->max_mutation_factor >
+            } else if (s[i]->num_exec_mutations / MAX_MUTATION_FACTOR >
                        st->num_executed_mutations / s_size) {
                 weights_set_index(st->weights, i, 0.0);
             } else {
@@ -770,12 +856,10 @@ void update_corpus_distr(rel_files_t **s, u32 s_size) {
             }
 
             if (((weight_seed_t *) ptr_array_index(st->weights, i))->weight > 0.0)
-                default_choise = 0;
+                change_mode_def = 0;
         }
     }
 
-    if (default_choise)
-        FATAL("добавь Выбор по максимому");
 }
 
 /* Get unix time in milliseconds */
@@ -1339,7 +1423,7 @@ static inline u8 has_new_bits(u8 *virgin_map) {
 
 #else
 
-    u32 *current = (u32 *) trace_bits;
+                                                                                                                            u32 *current = (u32 *) trace_bits;
     u32 *virgin = (u32 *) virgin_map;
 
     u32 i = (MAP_SIZE >> 2);
@@ -1375,7 +1459,7 @@ static inline u8 has_new_bits(u8 *virgin_map) {
 
 #else
 
-                if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
+                                                                                                                                        if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
                     (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff))
                     ret = 2;
                 else ret = 1;
@@ -1535,7 +1619,7 @@ static void simplify_trace(u64 *mem) {
 
 #else
 
-static void simplify_trace(u32 *mem) {
+                                                                                                                        static void simplify_trace(u32 *mem) {
 
     u32 i = MAP_SIZE >> 2;
 
@@ -1625,7 +1709,7 @@ static inline void classify_counts(u64 *mem) {
 
 #else
 
-static inline void classify_counts(u32 *mem) {
+                                                                                                                        static inline void classify_counts(u32 *mem) {
 
     u32 i = MAP_SIZE >> 2;
 
@@ -2515,7 +2599,7 @@ EXP_ST void init_forkserver(char **argv) {
 
 #else
 
-            /* This takes care of OpenBSD, which doesn't have RLIMIT_AS, but
+                                                                                                                                    /* This takes care of OpenBSD, which doesn't have RLIMIT_AS, but
 according to reliable sources, RLIMIT_DATA covers anonymous
 maps - so we should be getting good protection against OOM bugs. */
 
@@ -3676,23 +3760,19 @@ static void write_crash_readme(void) {
 
 }
 
-static double start_energy(array_t *rare_bitmaps) {
-    u32 len = rare_bitmaps->len;
-    return !len ? 1.0 : log(len);
-}
+static void save_related_fls(u8 *fn, u32 len, u32 current_index, rel_files_t *ds) {
 
-static void save_related_fls(u8 *fn, u32 len, u32 current_index) {
-
+    struct state_files *st;
     rel_files_t *s;
-    array_t *rare_bitmaps;
     u32 j;
 
     for (u32 i = 1; i < MAX_OUT_FNS; i++) {
 
-        if (related_fls[i] && i != current_index) {                //
+        if (related_fls[i] && i != current_index) {
 
-            j = afl_state[i].sets_rel_fls_size;
-            rare_bitmaps = afl_state[i].rare_bitmaps;
+            st = afl_state + i;
+
+            j = st->sets_rel_fls_size;
             s = malloc(sizeof(rel_files_t));
             s->set[0].fname = ck_strdup(fn);
             s->set[0].len = len;
@@ -3704,14 +3784,22 @@ static void save_related_fls(u8 *fn, u32 len, u32 current_index) {
             s->crashs = 0;
             s->set_size = 1;
 
-            s->energy = !len ? 1.0 : log(len);
-            s->sum_incidence = rare_bitmaps->len;
-            s->needs_energy_update = 0;
-            s->num_exec_mutations = 0;
+            if (entropy.enable) {
+                u32 l = st->rare_bitmaps->len;
+                s->energy = !l ? 1.0 : log(l);
+                s->sum_incidence = l;
+                s->bitmap_freq = ptr_array_create(ck_free);
+                s->needs_energy_update = 0;
+                s->num_exec_mutations = 0;
 
-            afl_state[i].sets_rel_fls[j] = s;
-            afl_state[i].sets_rel_fls_size++;
-            afl_state[i].distr_needs_update = 1;
+                st->distr_needs_update = 1;
+
+                add_rare_bitmap(st, queue_top->exec_cksum);
+                update_bitmap_freq(st, s, queue_top->exec_cksum);
+            }
+
+            st->sets_rel_fls[j] = s;
+            st->sets_rel_fls_size++;
 
             LOG("Save related file - %s for file - %d", fn, i);
 
@@ -3751,16 +3839,20 @@ static void save_set(u8 *fn_mem, rel_files_t *dataset) {
    save or queue the input test case for further analysis if so. Returns 1 if
    entry is saved, 0 otherwise. */
 
-static u8 save_if_interesting(char **argv,
+        static u8 save_if_interesting(char **argv,
                               void *mem,
                               u32 len,
                               rel_files_t *dataset,
                               u8 fault) {
 
+    struct state_files *st;
+
     u8 *fn = "";
     u8 hnb;
     s32 fd;
     u8 keeping = 0, res;
+
+    st = afl_state + cur_index;
 
     if (fault == crash_mode) {
 
@@ -3768,6 +3860,16 @@ static u8 save_if_interesting(char **argv,
        future fuzzing, etc. */
 
         if (!(hnb = has_new_bits(virgin_bits))) {
+
+            if (entropy.enable && cur_index != 0) {
+
+                u32 hash = hash32(trace_bits, MAP_SIZE, HASH_CONST);
+
+                st->distr_needs_update = 1;
+                add_rare_bitmap(st, hash);
+                update_bitmap_freq(st, dataset, hash);
+            }
+
             if (crash_mode) total_crashes++;
             return 0;
         }
@@ -3786,12 +3888,6 @@ static u8 save_if_interesting(char **argv,
 #endif /* ^!SIMPLE_FILES */
 
         add_to_queue(fn, len, 0);
-
-        if (dataset != NULL) {
-            dataset->paths++;
-            dataset->last_path_time = last_path_time;
-            queue_top->set_rel_fls = dataset;
-        }
 
         if (hnb == 2) {
             queue_top->has_new_cov = 1;
@@ -3813,13 +3909,21 @@ static u8 save_if_interesting(char **argv,
         if (res == FAULT_ERROR)
             FATAL("Unable to execute target application");
 
-        save_related_fls(fn, len, cur_index);
+        save_related_fls(fn, len, cur_index, dataset);
 
-        if (entropy.enable) {
+        if (dataset != NULL) {
 
-            struct state_files st = afl_state[cur_index];
-            add_rare_bitmap(st.sets_rel_fls, st.sets_rel_fls_size, queue_top->exec_cksum);
-            update_bitmap_freq(dataset, queue_top->exec_cksum);
+            dataset->paths++;
+            dataset->last_path_time = last_path_time;
+            queue_top->set_rel_fls = dataset;
+
+            if (entropy.enable) {
+
+                st->distr_needs_update = 1;
+
+                add_rare_bitmap(st, queue_top->exec_cksum);
+                update_bitmap_freq(st, dataset, queue_top->exec_cksum);
+            }
         }
 
         fd = open(fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
@@ -3889,7 +3993,7 @@ static u8 save_if_interesting(char **argv,
 
 #else
 
-            fn = alloc_printf("%s/hangs/id_%06llu", out_dir,
+                                                                                                                                    fn = alloc_printf("%s/hangs/id_%06llu", out_dir,
 unique_hangs);
 
 #endif /* ^!SIMPLE_FILES */
@@ -3933,7 +4037,7 @@ unique_hangs);
 
 #else
 
-            fn = alloc_printf("%s/crashes/id_%06llu_%02u", out_dir, unique_crashes,
+                                                                                                                                    fn = alloc_printf("%s/crashes/id_%06llu_%02u", out_dir, unique_crashes,
 kill_signal);
 
 #endif /* ^!SIMPLE_FILES */
@@ -5352,7 +5456,7 @@ static void show_stats(void) {
 
 #else
 
-        SAYF(SP10
+                                                                                                                                SAYF(SP10
                      cGRA
                      "   [cpu:%s%3u%%"
                      cGRA
@@ -5586,7 +5690,8 @@ static s32 state_pid(u8 *dir) {
 static void setup_dirs_fds();
 
 static void change_index(s32 current_index, s32 new_index) {
-
+    static u32 tmp  = 0;
+    tmp++;
     afl_state[current_index].out_file = out_file;     // макрос!!! один с набором
     afl_state[current_index].out_dir = out_dir;
 
@@ -5809,6 +5914,24 @@ EXP_ST void save_new_out_fl(char **argv, u8 *new_fl, u8 *cur_buf, u32 len, rel_f
     for (u32 j = 1; j < d->set_size; j++)
         d->set[j] = dataset->set[j - 1];
 
+
+    if (entropy.enable) {
+
+        u32 l = afl_state[cur_index].rare_bitmaps->len;
+        d->energy = !l ? 1.0 : log(l);
+        d->sum_incidence = l;
+        d->bitmap_freq = ptr_array_create(ck_free);
+        d->needs_energy_update = 0;
+        d->num_exec_mutations = 0;
+
+        afl_state[i].distr_needs_update = 1;
+
+        u32 hash = hash32(trace_bits, MAP_SIZE, HASH_CONST);
+
+        add_rare_bitmap(afl_state + cur_index, hash);
+        update_bitmap_freq(afl_state + cur_index, d, hash);
+    }
+
     afl_state[cur_index].sets_rel_fls[0] = d;
     afl_state[cur_index].sets_rel_fls_size = 1;
 
@@ -5900,14 +6023,14 @@ EXP_ST void reset_suit_rel_fls(struct state_files *sf) {
 }
 
 
-
 EXP_ST void suit_rel_fls(struct state_files *sf) {
     /*
      * Заполняем до предела если дошли до конца и 5 кругов нет новых данных
      * то сбрасываем счет и переделываем сбор еще раз
      */
-    rel_files_t **s,  **r;
+    rel_files_t **s, **r;
     u32 *s_size, r_size, *reset;
+    u32 mode;
 
     ptr_array_t *weights = sf->weights;
     s = sf->suit;
@@ -5916,13 +6039,19 @@ EXP_ST void suit_rel_fls(struct state_files *sf) {
     r_size = sf->sets_rel_fls_size;
     reset = &sf->reset;
 
-
     if (r_size == 0)
         return;
 
     u32 j = 0;
 
-    switch (type_mode) {
+
+    if (change_mode_def)
+        mode = MAX_COV;
+    else
+        mode = type_mode;
+
+
+    switch (mode) {
 
         case MIN_COV:
 
@@ -6000,6 +6129,7 @@ EXP_ST void suit_rel_fls(struct state_files *sf) {
     }
 
     if (j != 0) {
+        change_mode_def = 0;
         *s_size = j;
         return;
     }
@@ -6250,7 +6380,8 @@ select_datasets(rel_files_t **d, u32 *d_size, struct state_files *st, rel_files_
 
 }
 
-EXP_ST u8 common_fuzz_stuff(char **argv, u8 *out_buf, u32 len, rel_files_t **ds, u32 ds_size, u32 *num_exec_mutation) {
+EXP_ST u8
+common_fuzz_stuff(char **argv, u8 *out_buf, u32 len, rel_files_t **ds, u32 ds_size, u32 *num_exec_mutation) {
 
     u32 ret = 0;
 
@@ -6614,7 +6745,7 @@ static u8 fuzz_one(char **argv) {
 
     rel_files_t *ds[2 * MAX_SIZE_SUIT + 10];
     u32 ds_size = 0,
-        num_exec_mutations = 0;
+            num_exec_mutations = 0;
 
 #ifdef IGNORE_FINDS
 
@@ -9143,7 +9274,7 @@ static void get_core_count(void) {
 
 #else
 
-    FILE *f = fopen("/proc/stat", "r");
+                                                                                                                            FILE *f = fopen("/proc/stat", "r");
     u8 tmp[1024];
 
     if (!f) return;
@@ -9422,10 +9553,10 @@ static char **get_qemu_argv(u8 *own_loc, char **argv, int argc) {
     } else
         ck_free(own_copy);
 
-    if (!access( BIN_PATH "/afl-qemu-trace", X_OK)) {
+    if (!access(BIN_PATH "/afl-qemu-trace", X_OK)) {
 
-        target_path = new_argv[0] = ck_strdup( BIN_PATH
-        "/afl-qemu-trace");
+        target_path = new_argv[0] = ck_strdup(BIN_PATH
+                                              "/afl-qemu-trace");
         return new_argv;
 
     }
@@ -9511,7 +9642,7 @@ int main(int argc, char **argv) {
                  cRST
                  " by <lcamtuf@google.com>\n");
 
-    doc_path = access( DOC_PATH, F_OK) ? "docs" : DOC_PATH;
+    doc_path = access(DOC_PATH, F_OK) ? "docs" : DOC_PATH;
 
     gettimeofday(&tv, &tz);
     srandom(tv.tv_sec ^ tv.tv_usec ^ getpid());
@@ -9812,21 +9943,19 @@ int main(int argc, char **argv) {
         use_argv = argv + optind;
 
     if (type_mode == ENTROPY) {
+
         struct state_files *st = afl_state + 1;
         entropy.enable = 1;
         entropy.num_of_rarest_bitmap = 100;
         entropy.freq_threshold = 0xff;
 
-        st->freq_of_most_abd_rare_bitmap = 0;
-        st->global_freqs = hash_table_create(double_hash, int_equal, free, free);
-        st->rare_bitmaps = array_create(0, 1, sizeof(u32));
+        st->freq_of_most_abd_rare_bitmap = 1;
+        st->global_freqs = hash_table_create(int_hash, int_equal, free, free);
+        st->rare_bitmaps = ptr_array_create(free);
 
-        st->max_mutation_factor = 20;
-        st->sparse_energy_updates = 100;
         st->num_executed_mutations = 0;
         st->distr_needs_update = 1;
-
-
+        srand(4);
     }
 
     perform_dry_run(use_argv);
@@ -9905,6 +10034,9 @@ int main(int argc, char **argv) {
 
         s = afl_state + cur_index;
 
+        if (entropy.enable)
+            update_corpus_distr(s);
+
         if (!s->prev_skip)
             suit_rel_fls(s);
 
@@ -9945,9 +10077,6 @@ int main(int argc, char **argv) {
         }
 
         s->prev_skip = skipped_fuzz = fuzz_one(use_argv);
-
-        if (entropy.enable)
-            update_corpus_distr(s->sets_rel_fls, s->sets_rel_fls_size);
 
         if (!s->prev_skip)
             favorit_sets_rel_fls(s->favorit, &s->favorit_size,
