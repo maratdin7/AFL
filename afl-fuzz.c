@@ -219,13 +219,19 @@ struct weight_seed_s {
     double weight;
 };
 
-typedef struct bitmap_id_freq_s bitmap_id_freq_t;
+struct ignore_fls_s {
+    u8 is_dir;
+    u8 *fn;
+    u32 len;
+};
 
+typedef struct bitmap_id_freq_s bitmap_id_freq_t;
 typedef struct weight_seed_s weight_seed_t;
+typedef struct ignore_fls_s ignore_fls_t;
 
 EXP_ST u32 related_fls[MAX_OUT_FNS];
 
-EXP_ST u8 *ignore_fls[100];
+EXP_ST ignore_fls_t *ignore_fls[100];
 EXP_ST u32 ignore_fls_size;
 
 
@@ -237,10 +243,9 @@ static u32 out_fns_size = 1;
 
 static u32 cur_index = 0;            /* Нынешний индекс                  */
 
-static s32 opensnoop_pid;            /* Opensnoop pid                */
-
-static s32 paths_fd,
-        log_fd;                 /* Persistent fd for file_with_paths*/
+static s32 opensnoop_pid,            /* Opensnoop pid                */
+            paths_fd,
+            log_fd;                 /* Persistent fd for file_with_paths*/
 
 static s32 std_fd = STDOUT_FILENO;
 
@@ -300,6 +305,7 @@ fsrv_st_fd;                /* Fork server status pipe (read)   */
 
 static s32 forksrv_pid,            /* PID of the fork server           */
 child_pid = -1,            /* PID of the fuzzed program        */
+child_pid_cp = -1,
 out_dir_fd = -1;           /* FD of the lock file              */
 
 
@@ -335,7 +341,6 @@ current_entry,             /* Current queue entry ID           */
 havoc_div = 1,             /* Cycle count divisor for havoc    */
 type_mode = 0,
         change_mode_def = 0;
-
 
 EXP_ST u64 total_crashes,  /* Total number of crashes          */
 unique_crashes,            /* Crashes with unique signatures   */
@@ -716,13 +721,13 @@ void add_rare_bitmap(struct state_files *st, u32 key) {
 
                 u32 b =
                         hash_table_lookup_extended(st->global_freqs,
-                                                     cur_key,
-                                                     NULL,
-                                                     (void **) &f);
+                                                   cur_key,
+                                                   NULL,
+                                                   (void **) &f);
                 u32 m =
                         hash_table_lookup_extended(st->global_freqs,
-                                                     most_abudante_key,
-                                                     NULL, (void **) &max_freq);
+                                                   most_abudante_key,
+                                                   NULL, (void **) &max_freq);
                 FATAL("i %d\n\t\tf %p - key %u (%d)\n\t\tmax_freq %p - key %u (%d)",
                       i, f, *cur_key, b, max_freq, most_abudante_key[0], m);
             }
@@ -3839,7 +3844,7 @@ static void save_set(u8 *fn_mem, rel_files_t *dataset) {
    save or queue the input test case for further analysis if so. Returns 1 if
    entry is saved, 0 otherwise. */
 
-        static u8 save_if_interesting(char **argv,
+static u8 save_if_interesting(char **argv,
                               void *mem,
                               u32 len,
                               rel_files_t *dataset,
@@ -5689,8 +5694,8 @@ static s32 state_pid(u8 *dir) {
 
 static void setup_dirs_fds();
 
-static void change_index(s32 current_index, s32 new_index) {
-    static u32 tmp  = 0;
+static void change_index(u32 current_index, u32 new_index) {
+    static u32 tmp = 0;
     tmp++;
     afl_state[current_index].out_file = out_file;     // макрос!!! один с набором
     afl_state[current_index].out_dir = out_dir;
@@ -5794,7 +5799,6 @@ static void change_index(s32 current_index, s32 new_index) {
             PFATAL("Проблемы с dup2");
 
         close(state_fd);
-
     }
 
     LOG(" Change index:\ncur_index - %d new_index - %d\n New dir %s", current_index, new_index, out_dir);
@@ -5814,52 +5818,47 @@ EXP_ST void queue_setting(char **argv, u8 *out_buf, s32 len, rel_files_t *datase
 }
 
 EXP_ST u32 file_filter(u8 *fn) {
-
-    if (strncmp(fn, "/home/", 6) != 0 && strchr(fn, '/') != NULL) return 0;
-
-    for (u32 i = 0; i < ignore_fls_size; i++)
-        if (!strcmp(fn, ignore_fls[i])) return 0;
+    if (strncmp(fn, "/home/", 6) != 0 && strchr(fn, '/') != NULL)
+        return 0;
 
     for (u32 i = 0; i < out_fns_size; i++) {
-
         if (!strcmp(out_fns[i], fn)) {
             related_fls[i]++;
             return 0;
         }
     }
-
-    if (out_fns_size == MAX_OUT_FNS) return 0;
-    else return 1;
+    for (u32 i = 0; i < ignore_fls_size; i++) {
+        ignore_fls_t *i_fl = ignore_fls[i];
+        u32 len = i_fl->len;
+        if (!i_fl->is_dir)
+            len++;
+        if (!strncmp(fn, i_fl->fn, len))
+            return 0;
+    }
+    return out_fns_size == MAX_OUT_FNS ? 0 : 1;
 }
 
 EXP_ST void read_ignore(u8 *fn) {
+    u32 i = 0, n;
+    u8 *ignore_fn;
 
-    s32 fd = open(fn, O_RDWR);
-    if (fd < 0) PFATAL("Unable to open '%s'", fn);
+    FILE *f = fopen(fn, "r");
+    if (f == NULL)
+        PFATAL("Unable to open '%s'", fn);
 
-    u32 i = 0;
-    u32 len = ck_len(fd);
-    u8 *mem = ck_alloc(sizeof(u8) * (len));
-    ck_read(fd, mem, len, fn);
-    close(fd);
-
-    u32 prev_len = 0;
-    u32 new_len = 0;
-    u8 *tm = len > 0 ? strchr(mem, '\n') : NULL;
-
-    while (tm != NULL) {
-
-        new_len = tm - mem - prev_len;
-
-        if (mem[prev_len] == '\n') i--;
-        else ignore_fls[i] = ck_memdup_str(mem + prev_len, new_len);
-
-        prev_len += new_len + 1;
-        i++;
-        tm = strchr(mem + prev_len, '\n');
-
-    }
-    ck_free(mem);
+    do {
+        n = fscanf(f, "%ms", &ignore_fn);
+        if (n == 1) {
+            u32 len = strlen(ignore_fn);
+            ignore_fls[i] = ck_alloc(sizeof(ignore_fls_t));
+            if (ignore_fn[len - 1] == '/')
+                ignore_fls[i]->is_dir = 1;
+            ignore_fls[i]->fn = ck_memdup_str(ignore_fn, len);
+            ignore_fls[i]->len = len;
+            i++;
+            free(ignore_fn);
+        }
+    } while (n != EOF);
 
     ignore_fls_size = i;
 
@@ -5962,40 +5961,14 @@ EXP_ST void save_new_out_fl(char **argv, u8 *new_fl, u8 *cur_buf, u32 len, rel_f
 
 EXP_ST void find_new_out_fls(char **argv, u8 *out_buf, u32 len, rel_files_t *dataset) {
 
-    u32 paths_len = ck_len(paths_fd);
+    s32 pid;
+    u8 *fn;
+    FILE *f = fdopen(paths_fd, "r");
 
-    if (paths_len > 0) {
-
-        u8 *buf, *tm;
-        u32 prev_len, new_len;
-
-        buf = ck_alloc(sizeof(u8) * (paths_len));
-        ck_read(paths_fd, buf, paths_len, "paths");
-
-        prev_len = 0;
-        new_len = 0;
-
-        tm = strchr(buf, '\n');
-
-        while (tm != NULL && prev_len < paths_len) {
-
-            new_len = tm - buf - prev_len;
-
-            if (buf[prev_len] != '\n') {
-
-                u8 *new_out_fl = ck_memdup_str(buf + prev_len, new_len);
-
-                if (file_filter(new_out_fl))
-                    save_new_out_fl(argv, new_out_fl, out_buf, len, dataset);
-
-                ck_free(new_out_fl);
-            }
-
-            prev_len += new_len + 1;
-            tm = strchr(buf + prev_len, '\n');
-        }
-
-        ck_free(buf);
+    while (fscanf(f, "%d%*s%*d%*d%ms", &pid, &fn) != EOF) {
+        if (pid == child_pid && file_filter(fn))
+            save_new_out_fl(argv, fn, out_buf, len, dataset);
+        free(fn);
     }
 }
 
@@ -6320,7 +6293,8 @@ EXP_ST u8 common_fuzz_stuff_1(char **argv,
 
     fault = run_target(argv, exec_tmout);
 
-    if (opensnoop_pid) find_new_out_fls(argv, out_buf, len, dataset);
+    if (opensnoop_pid && child_pid > 0)
+        find_new_out_fls(argv, out_buf, len, dataset);
 
     if (stop_soon) return 1;
 
@@ -9964,7 +9938,7 @@ int main(int argc, char **argv) {
 
     u8 *paths = alloc_printf("%s/paths", out_dir);
     unlink(paths);
-    paths_fd = open(paths, O_CREAT | O_EXCL | O_RDWR, 0600);
+    paths_fd = open(paths, O_CREAT | O_EXCL | O_RDONLY, 0600);
 
     if (paths_fd < 0) PFATAL("Unable to create '%s'", paths);
 
