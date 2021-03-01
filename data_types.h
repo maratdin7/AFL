@@ -2,6 +2,8 @@
 #define AFL_DATA_TYPES_H
 
 #include "glib.h"
+#include "types.h"
+#include "debug.h"
 
 typedef GArray array_t;
 typedef GPtrArray ptr_array_t;
@@ -23,50 +25,30 @@ typedef GHashTable hash_table_t;
 
 #define ptr_array_create(element_free_func) g_ptr_array_new_with_free_func(element_free_func)
 
-void index_control(ptr_array_t *a, u32 i) {
-        if (a->len <= i)
-            FATAL("Out of bounds of array");
-}
-
 #define ptr_array_insert(a, i, v) \
-    g_ptr_array_insert(a, i, v);
+    g_ptr_array_insert(a, i, v)
 
 
 #define ptr_array_set_size(a, s) g_ptr_array_set_size(a, s)
 
-void ptr_array_sort(ptr_array_t *a, s32 (compare) (const void *p1, const void *p2) ) {
-    g_ptr_array_sort(a, compare);
-}
-array_t *ptr_array_remove_index(ptr_array_t *a, u32 i) {
+#define ptr_array_sort(a, compare) g_ptr_array_sort(a, compare)
 
-    index_control(a, i);
-    return g_ptr_array_remove_index(a, i);
-}
+#define ptr_array_remove_index(a, i) g_ptr_array_remove_index(a, i)
 
-array_t *ptr_array_remove_index_fast(ptr_array_t *a, u32 i) {
+#define ptr_array_remove_index_fast(a, i) g_ptr_array_remove_index_fast(a, i)
 
-    index_control(a, i);
-    return g_ptr_array_remove_index_fast(a, i);
-}
+#define ptr_array_index(a, i) g_ptr_array_index(a, i)
 
-void *ptr_array_index(ptr_array_t *a, u32 i) {
-
-    index_control(a, i);
-    return g_ptr_array_index(a, i);
-}
-
-#define ptr_array_add(a, v) \
-    g_ptr_array_add(a, v)
+#define ptr_array_add(a, v) g_ptr_array_add(a, v)
 
 #define ptr_array_set_index(a, i, val) do { \
     void *tmp = ptr_array_index(a, i); \
     *tmp = val; \
 } while (0)
 
-uint32_t ptr_lower_bound(ptr_array_t *arr, uint32_t low, uint32_t hight, void *x, int8_t (*compare)(void *, void *)) {
+static u32 ptr_lower_bound(ptr_array_t *arr, u32 low, u32 hight, void *x, s32 (*compare)(void *, void *)) {
 
     while (low < hight) {
-
         uint32_t m = low + (hight - low) / 2;
         if (compare(x, ptr_array_index(arr, m)) <= 0)
             hight = m;
@@ -80,19 +62,11 @@ uint32_t ptr_lower_bound(ptr_array_t *arr, uint32_t low, uint32_t hight, void *x
 
 #define hash_table_get(ht, k) g_hash_table_lookup(ht, k)
 
-u32 double_hash(const void *d) {
-    return g_double_hash(d);
-}
-
-//s32 int_equal(const void *a, const void *b) {
-//    return g_int_equal(a, b);
-//}
-
-s32 int_equal(const void *a, const void *b) {
+static s32 int_equal(const void *a, const void *b) {
     return g_int_equal(a, b);
 }
 
-u32 int_hash(const void *v) {
+static u32 int_hash(const void *v) {
     return g_int_hash(v);
 }
 

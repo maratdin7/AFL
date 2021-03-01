@@ -43,7 +43,7 @@ else
   TEST_CC   = afl-clang
 endif
 
-COMM_HDR    = alloc-inl.h config.h debug.h types.h data_types.h
+COMM_HDR    = alloc-inl.h config.h debug.h types.h data_types.h entropy.h
 
 all: test_x86 $(PROGS) afl-as test_build all_done
 
@@ -71,7 +71,7 @@ afl-as: afl-as.c afl-as.h $(COMM_HDR) | test_x86
 	ln -sf afl-as as
 
 afl-fuzz: afl-fuzz.c $(COMM_HDR) | test_x86
-	$(CC) $(CFLAGS) $@.c -o $@ $(LDFLAGS)
+	$(CC) $(CFLAGS) $@.c entropy.c -o $@ $(LDFLAGS)
 
 afl-showmap: afl-showmap.c $(COMM_HDR) | test_x86
 	$(CC) $(CFLAGS) $@.c -o $@ $(LDFLAGS)
