@@ -68,7 +68,7 @@ typedef struct weight_seed_s weight_seed_t;
 
 void create_entropy(entropy_t *entropy, u32 num_of_rarest_bitmap, u32 freq_threshold);
 
-void create_entropy_el(entropy_t *entropy, entropy_el_t *entropy_el, u32 bitmap_id);
+void create_entropy_el(entropy_t *entropy, entropy_el_t *entropy_el);
 
 s32 compare_bitmap_id_freq(void *a, void *b);
 

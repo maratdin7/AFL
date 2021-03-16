@@ -27,12 +27,14 @@ void create_entropy(entropy_t *entropy, u32 num_of_rarest_bitmap, u32 freq_thres
         entropy->freq_of_most_abd_rare_bitmap = 1;
         entropy->global_freqs = g_hash_table_new_full(int_hash, int_equal, free, free);
         entropy->rare_bitmaps = g_ptr_array_new_with_free_func(free);
+        entropy->weights = g_ptr_array_new_with_free_func(free);
+
         entropy->num_executed_mutations = 0;
         entropy->distr_needs_update = 1;
         srand(4);
 }
 
-void create_entropy_el(entropy_t *entropy, entropy_el_t *entropy_el, u32 bitmap_id) {
+void create_entropy_el(entropy_t *entropy, entropy_el_t *entropy_el) {
     u32 l = entropy->rare_bitmaps->len;
     entropy_el->energy = !l ? 1.0 : log(l);
     entropy_el->sum_incidence = l;
@@ -42,8 +44,8 @@ void create_entropy_el(entropy_t *entropy, entropy_el_t *entropy_el, u32 bitmap_
 
 //    entropy->distr_needs_update = 1;
 
-    add_rare_bitmap(entropy, bitmap_id);
-    update_bitmap_freq(entropy, entropy_el, bitmap_id);
+//    add_rare_bitmap(entropy, bitmap_id);
+//    update_bitmap_freq(entropy, entropy_el, bitmap_id);
 }
 
 s32 compare_bitmap_id_freq(void *a, void *b) {
@@ -205,9 +207,6 @@ void debug_entropy(ptr_array_t *rare_bitmaps, hash_table_t *global_freqs) {
 
 void add_rare_bitmap(entropy_t *entropy, u32 key) {
 
-    if (g_hash_table_lookup(entropy->global_freqs, &key) != NULL)
-        return;
-
     //debug_entropy(entropy->rare_bitmaps, entropy->global_freqs);
 
     entropy_el_t **s = entropy->set_entropy_el;
@@ -223,10 +222,10 @@ void add_rare_bitmap(entropy_t *entropy, u32 key) {
                 delete;
 
         cur_key = (u32 *) g_ptr_array_index(entropy->rare_bitmaps, 0);
-
+        g_hash_table_lookup(entropy->global_freqs, cur_key);
         u32 most_abudante_key[2] = {*cur_key, *cur_key};
+        max_freq = g_hash_table_lookup(entropy->global_freqs, cur_key);
 
-        max_freq = most_abudante_key;
         delete = 0;
 
         for (u32 i = 0; i < entropy->rare_bitmaps->len; i++) {
@@ -255,6 +254,7 @@ void add_rare_bitmap(entropy_t *entropy, u32 key) {
             if (delete_bitmap_freq(s[i]->bitmap_freq, most_abudante_key[0]))
                 s[i]->needs_energy_update = 1;
         }
+//        debug_entropy(entropy->rare_bitmaps, entropy->global_freqs);
         entropy->freq_of_most_abd_rare_bitmap =
                 *(u32 *) g_hash_table_lookup(entropy->global_freqs, (gpointer) (most_abudante_key + 1));
         j++;
@@ -314,7 +314,6 @@ void update_bitmap_freq(entropy_t *entropy, entropy_el_t *entropy_el, u32 key) {
         update_bitmap_freq_local(entropy_el, key);
 }
 
-
 u32 update_corpus_distr(entropy_t *entropy) {
     entropy_el_t **s = entropy->set_entropy_el;
     u32 s_size = entropy->set_entropy_el_size;
@@ -327,9 +326,6 @@ u32 update_corpus_distr(entropy_t *entropy) {
 
     if (!s_size)
         return -1;
-
-    if (entropy->weights == NULL)
-        entropy->weights = g_ptr_array_new_with_free_func(free);
 
     g_ptr_array_set_size(entropy->weights, s_size);
     u32 weight_changed = 1;

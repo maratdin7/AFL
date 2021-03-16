@@ -363,4 +363,7 @@
 
 #define EPS 0.000001
 
+/* Get entropy evaluation */
+#define ENTROPY_EVALUATION
+
 #endif /* ! _HAVE_CONFIG_H */
