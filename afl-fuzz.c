@@ -278,7 +278,9 @@ EXP_ST u8 *trace_bits;              /* SHM with instrumentation bitmap  */
 
 EXP_ST u8 virgin_bits[MAP_SIZE],    /* Regions yet untouched by fuzzing */
 virgin_tmout[MAP_SIZE],     /* Bits we haven't seen in tmouts   */
-virgin_crash[MAP_SIZE];     /* Bits we haven't seen in crashes  */
+virgin_crash[MAP_SIZE],     /* Bits we haven't seen in crashes  */
+prev_virgin_bits[MAP_SIZE],
+stat_entropy[MAP_SIZE<<3];
 
 static u8 var_bytes[MAP_SIZE];      /* Bytes that appear to be variable */
 
@@ -286,7 +288,7 @@ static s32 shm_id;                  /* ID of the SHM region             */
 
 static volatile u8 stop_soon,       /* Ctrl-C pressed?                  */
 clear_screen = 1,           /* Window resized?                  */
-child_timed_out;            /* Traced process timed out?        */
+child_timed_out;           /* Traced process timed out?        */
 
 EXP_ST u32 queued_paths,           /* Total number of queued testcases */
 queued_variable,           /* Testcases with variable behavior */
@@ -1117,14 +1119,35 @@ static inline u8 has_new_bits(u8 *virgin_map) {
 
 }
 
-static inline u8 has_new_bits_entropy(struct queue_entry *q, u8 *virgin_map) {
+static inline u32 prev_freq_index(u8 cur) {
+    switch (cur) {
+        case 128:
+            return 7;
+        case 64:
+            return 6;
+        case 32:
+            return 5;
+        case 16:
+            return 4;
+        case 8:
+            return 3;
+        case 4:
+            return 2;
+        case 2:
+            return 1;
+        case 1:
+            return 0;
+    }
+}
+
+static inline u8 has_new_bits_entropy(u8 *virgin_map) {
 
 #ifdef __x86_64__
 
-    u8 *cur = (u8 *) trace_bits;
+    u64 *current = (u64 *) trace_bits;
     u8 *vir = (u8 *) virgin_map;
-
-    u32 i = (MAP_SIZE);
+    u8 *stat = (u8 *) stat_entropy;
+    u32 i = (MAP_SIZE >> 3);
 
 #else
 
@@ -1136,40 +1159,84 @@ static inline u8 has_new_bits_entropy(struct queue_entry *q, u8 *virgin_map) {
 #endif /* ^__x86_64__ */
 
     u8 ret = 0;
-
     while (i--) {
 
         /* Optimize for (*current & *virgin) == 0 - i.e., no bits in current bitmap
        that have not been already cleared from the virgin map - since this will
        almost always be the case. */
 
-        if (unlikely(*cur)) {
+        if (unlikely(*current)) {
+            u8 *cur = (u8 *) current;
 
-            if (unlikely(*cur & *vir)) {
+            u32 j = 8;
 
-                /* Looks like we have not found any new bytes yet; see if any non-zero
-           bytes in current[] are pristine in virgin[]. */
+            while (j--) {
+                if (*cur) {
+                    u8 *prev_freq = stat + prev_freq_index(*cur);
 
-                if (*cur && *vir == 0xff)
-                    ret = 2;
-                else
-                    ret = ret == 2 ? ret : 1;
+                    if ((*cur & *vir)) {
 
-                add_rare_bitmap(entropy_evl, i);
+                        /* Looks like we have not found any new bytes yet; see if any non-zero
+                   bytes in current[] are pristine in virgin[]. */
 
-                *vir &= ~*cur;
+                        if (*cur && *vir == 0xff)
+                            ret = 2;
+                        else
+                            ret = ret == 2 ? ret : 1;
+
+//                    add_global_bitmap(entropy_evl, i);
+                        *prev_freq = 0;
+                        *vir &= ~*cur;
+                    }
+
+//                update_bitmap_freq(entropy_evl, q->entropy_el, i);
+                    (*prev_freq)++;
+
+                }
+                stat += 1 << 3;
+                cur++;
+                vir++;
             }
-
-            update_bitmap_freq(entropy_evl, q->entropy_el, i);
+        } else {
+            stat += 1 << 6;
+            vir += 1 << 3;
         }
-
-        cur++;
-        vir++;
+        current++;
     }
 
     if (ret && virgin_map == virgin_bits) bitmap_changed = 1;
 
     return ret;
+}
+
+static void add_to_entropy_el(entropy_t *entropy, entropy_el_t *entropy_el, u8 *virgin, u8 *prev_virgin, u8 *stat) {
+
+    u8 *vir = (u8 *) virgin;
+    u8 new_bits;
+
+    for (u32 i = 0; i < MAP_SIZE; i++) {
+
+        new_bits = virgin[i] ^ prev_virgin[i];
+
+        if (new_bits) {
+
+            u32 j = 8;
+
+            while (j--) {
+
+                u32 key = j + (i << 3);
+
+                if (new_bits<<=1)
+                    add_global_bitmap(entropy, key);
+
+                update_bitmap_freq(entropy, entropy_el, key, stat[i]);
+            }
+        }
+    }
+
+
+
+
 }
 
 /* Count the number of bits set in the provided bitmap. Used for the status
@@ -2907,7 +2974,7 @@ static u8 calibrate_case(char **argv,
 
         if (q->exec_cksum != cksum) {
 
-            u8 hnb = has_new_bits_entropy(q, virgin_bits);
+            u8 hnb = has_new_bits_entropy(virgin_bits);
             if (hnb > new_bits) new_bits = hnb;
 
             if (q->exec_cksum) {
@@ -3519,10 +3586,10 @@ static void save_set(u8 *fn_mem, rel_files_t *dataset) {
     LOG("Save set - OK");
 }
 
-static void check_el(entropy_t *e, entropy_el_t *e_el, u32 key) {
-    add_rare_bitmap(e, key);
-    update_bitmap_freq(e, e_el, key);
-}
+//static void check_el(entropy_t *e, entropy_el_t *e_el, u32 key) {
+//    add_global_bitmap(e, key);
+//    update_bitmap_freq(e, e_el, key, );
+//}
 
 /* Check if the result of an execve() during routine fuzzing is interesting,
    save or queue the input test case for further analysis if so. Returns 1 if
@@ -3548,9 +3615,9 @@ static u8 save_if_interesting(char **argv,
         /* Keep only if there are new bits in the map, add to queue for
        future fuzzing, etc. */
         clock_t tm = clock();
-        hnb = has_new_bits_entropy(queue_cur, virgin_bits);
+        hnb = has_new_bits_entropy(virgin_bits);
         tm = clock() - tm;
-        LOG("Time of execution has_new_bits - %f", (double) tm / CLOCKS_PER_SEC);
+        //LOG("Time of execution has_new_bits - %f", (double) tm / CLOCKS_PER_SEC);
         if (!(hnb)) {
 
             if (crash_mode) total_crashes++;
@@ -5486,7 +5553,7 @@ static void change_index(u32 current_index, u32 new_index) {
     cur_st = afl_state + cur_index;
 }
 
-EXP_ST void queue_setting(char **argv, u8 *out_buf, s32 len, u32 hash, rel_files_t *dataset) {
+EXP_ST void queue_setting(char **argv, u8 *out_buf, s32 len, rel_files_t *dataset) {
 
     add_to_queue(ck_strdup(out_fns[cur_index]), len, 0);
 
@@ -5495,8 +5562,8 @@ EXP_ST void queue_setting(char **argv, u8 *out_buf, s32 len, u32 hash, rel_files
     queue->set_rel_fls = dataset;
 
 #ifdef ENTROPY_EVALUATION
-//    queue->entropy_el = ck_alloc(sizeof(entropy_t));
-//    create_entropy_el(entropy_evl, queue->entropy_el);
+    queue->entropy_el = ck_alloc(sizeof(entropy_t));
+    create_entropy_el(entropy_evl, queue->entropy_el);
 #endif
 
     calibrate_case(argv, queue, out_buf, dataset, 0, 1);
@@ -5632,7 +5699,7 @@ EXP_ST void save_new_out_fl(char **argv, u8 *new_fl, u8 *cur_buf, u32 len, rel_f
 
     close(fd);
 
-    queue_setting(argv, buf, buf_len, hash, d);
+    queue_setting(argv, buf, buf_len, d);
 
     change_index(cur_index, prev_index);
 
@@ -6048,8 +6115,10 @@ common_fuzz_stuff(char **argv, u8 *out_buf, u32 len, rel_files_t **ds, u32 ds_si
 
     if (ds_size) {
         for (u32 i = 0; i < ds_size; i++) {
-            LOG("fn - %s\tentropy_el - %p", ds[i]->set->fname, ds[i]->entropy_el);
-            increment_num_exec_mutation(cur_st->entropy, ds[i]->entropy_el);
+            if (type_mode == ENTROPY && cur_st->entropy != NULL) {
+                LOG("fn - %s\tentropy_el - %p", ds[i]->set->fname, ds[i]->entropy_el);
+                increment_num_exec_mutation(cur_st->entropy, ds[i]->entropy_el);
+            }
             ret += common_fuzz_stuff_1(argv, out_buf, len, ds[i]);
         }
     } else
@@ -9663,6 +9732,12 @@ int main(int argc, char **argv) {
 
         u8 skipped_fuzz;
 
+#ifdef ENTROPY_EVALUATION
+        update_corpus_distr(entropy_evl);
+        if (queue_cur)
+            LOG("\nCur entropy %f\n", queue_cur->entropy_el->energy);
+#endif
+
         if (next_index >= out_fns_size) next_index = 0;
 
         if (cur_index != next_index) {
@@ -9675,12 +9750,6 @@ int main(int argc, char **argv) {
         if (type_mode == ENTROPY && cur_st->entropy != NULL)
             cur_st->change_type_mode =
                     update_corpus_distr(cur_st->entropy);
-
-#ifdef ENTROPY_EVALUATION
-        update_corpus_distr(entropy_evl);
-        if (queue_cur)
-            LOG("\nCur entropy %f\n", queue_cur->entropy_el->energy);
-#endif
 
         if (!cur_st->prev_skip)
             suit_rel_fls(cur_st);
@@ -9720,6 +9789,9 @@ int main(int argc, char **argv) {
                 sync_fuzzers(use_argv);
 
         }
+
+        memcpy(prev_virgin_bits, virgin_bits, MAP_SIZE);
+        memset(stat_entropy, 0, MAP_SIZE);
 
         cur_st->prev_skip = skipped_fuzz = fuzz_one(use_argv);
 

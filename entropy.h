@@ -18,7 +18,7 @@ s32 int_equal(const void *a, const void *b);
 u32 int_hash(const void *v);
 
 struct entropy_el_s {
-    ptr_array_t *bitmap_freq;
+    hash_table_t *bitmap_freq;
 
     double energy;
 
@@ -78,17 +78,17 @@ bitmap_id_freq_t *set_bitmap_id_freq(void *p, u32 f, u32 s);
 
 weight_seed_t *set_weight_seed(void *weight_seed, u32 index, double weight);
 
-u8 delete_bitmap_freq(ptr_array_t *arr, u32 val);
+u8 delete_bitmap_freq(hash_table_t *arr, u32 key);
 
 void increment_num_exec_mutation(entropy_t *entropy, entropy_el_t *entropy_el);
 
 void update_energy(entropy_el_t *entropy_el, u32 global_num_of_species);
 
-void update_bitmap_freq_local(entropy_el_t *entropy_el, u32 val);
+void update_bitmap_freq_local(entropy_el_t *entropy_el, u32 key, u32 val);
 
-void update_bitmap_freq(entropy_t *entropy, entropy_el_t *entropy_el, u32 key); //
+void update_bitmap_freq(entropy_t *entropy, entropy_el_t *entropy_el, u32 key, u32 val); //
 
-void add_rare_bitmap(entropy_t *entropy, u32 key);      //
+void add_global_bitmap(entropy_t *entropy, u32 key);      //
 
 u32 update_corpus_distr(entropy_t *entropy); //
 
