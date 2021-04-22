@@ -1184,12 +1184,10 @@ static inline u8 has_new_bits_entropy(u8 *virgin_map) {
                         else
                             ret = ret == 2 ? ret : 1;
 
-//                    add_global_bitmap(entropy_evl, i);
                         *prev_freq = 0;
                         *vir &= ~*cur;
                     }
 
-//                update_bitmap_freq(entropy_evl, q->entropy_el, i);
                     (*prev_freq)++;
 
                 }
@@ -1209,7 +1207,7 @@ static inline u8 has_new_bits_entropy(u8 *virgin_map) {
     return ret;
 }
 
-static void add_to_entropy_el(entropy_t *entropy, entropy_el_t *entropy_el, u8 *virgin, u8 *prev_virgin, u8 *stat) {
+static void add_to_entropy_elements(entropy_t *entropy, entropy_el_t *entropy_el, u8 *virgin, u8 *prev_virgin, u8 *stat) {
 
     u8 *vir = (u8 *) virgin;
     u8 new_bits;
@@ -1221,21 +1219,25 @@ static void add_to_entropy_el(entropy_t *entropy, entropy_el_t *entropy_el, u8 *
         if (new_bits) {
 
             u32 j = 8;
-
+            u8 cur_freq = 1 << 7;
             while (j--) {
 
                 u32 key = j + (i << 3);
 
-                if (new_bits<<=1)
+                if (new_bits & cur_freq)
                     add_global_bitmap(entropy, key);
 
-                update_bitmap_freq(entropy, entropy_el, key, stat[i]);
+                if (stat[key]) {
+                    if (!g_hash_table_lookup(entropy->global_freqs, &key))
+                        LOG("global_freqs doesn't contain %d ", key);
+                    update_key_freq(entropy, entropy_el, key, stat[key]);
+                }
+                cur_freq >>= 1;
             }
         }
     }
 
-
-
+    add_rare_bitmap(entropy);
 
 }
 
@@ -2826,25 +2828,24 @@ static u8 run_target(char **argv, u32 timeout) {
    is unlinked and a new one is created. Otherwise, out_fd is rewound and
    truncated. */
 
-static void write_to_testcase(void *out_buf, u32 len, u8 *file) {
+static void write_to_testcase(void *out_buf, u32 len, u8 *fn) {
 
     s32 fd = out_fd;
 
-    if (file) {
+    if (fn) {
 
-        unlink(file); /* Ignore errors. */
-
-        fd = open(file, O_WRONLY | O_CREAT | O_EXCL, 0600);
-
-        if (fd < 0) PFATAL("Unable to create '%s'", file);
+        unlink(fn); /* Ignore errors. */
+        fd = open(fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
+        if (fd < 0) PFATAL("Unable to create '%s'", fn);
 
     } else lseek(fd, 0, SEEK_SET);
 
-    ck_write(fd, out_buf, len, file);
+    ck_write(fd, out_buf, len, fn);
 
-    if (!file) {
+    if (!fn) {
 
-        if (ftruncate(fd, len)) PFATAL("ftruncate() failed");
+        if (ftruncate(fd, len))
+            PFATAL("ftruncate() failed");
         lseek(fd, 0, SEEK_SET);
 
     } else close(fd);
@@ -2974,7 +2975,7 @@ static u8 calibrate_case(char **argv,
 
         if (q->exec_cksum != cksum) {
 
-            u8 hnb = has_new_bits_entropy(virgin_bits);
+            u8 hnb = has_new_bits(virgin_bits);
             if (hnb > new_bits) new_bits = hnb;
 
             if (q->exec_cksum) {
@@ -3040,7 +3041,19 @@ static u8 calibrate_case(char **argv,
 
     if (var_detected) {
 
-        var_byte_count = count_bytes(var_bytes);
+
+        static u32 tmp = 0;
+        u8 *fn = alloc_printf("var_trace_%d", tmp);
+        bitmap_changed = 1;
+        write_bitmap(fn, trace_bits);
+        ck_free(fn);
+
+        fn = alloc_printf("var_virgin_%d", tmp);
+        bitmap_changed = 1;
+        write_bitmap(fn, virgin_bits);
+        ck_free(fn);
+
+       var_byte_count = count_bytes(var_bytes);
 
         if (!q->var_behavior) {
             mark_as_variable(q);
@@ -3412,7 +3425,7 @@ static void pivot_inputs(void) {
         q->fname = nfn;
 
         //u8 *fn_bitmap = alloc_printf("bitmap_%d", test);
-        //write_bitmap_custom(fn_bitmap, trace_bits, MAP_SIZE, nfn);
+//        write_bitmap_custom(fn_bitmap, trace_bits, MAP_SIZE, nfn);
         //number_bitmap++;
         //ck_free(fn_bitmap);
 
@@ -3588,7 +3601,7 @@ static void save_set(u8 *fn_mem, rel_files_t *dataset) {
 
 //static void check_el(entropy_t *e, entropy_el_t *e_el, u32 key) {
 //    add_global_bitmap(e, key);
-//    update_bitmap_freq(e, e_el, key, );
+//    update_key_freq(e, e_el, key, );
 //}
 
 /* Check if the result of an execve() during routine fuzzing is interesting,
@@ -3614,10 +3627,19 @@ static u8 save_if_interesting(char **argv,
 
         /* Keep only if there are new bits in the map, add to queue for
        future fuzzing, etc. */
+
+       /* static u32 tmp = 0, prev_cycle;
+        if (queue_cycle - prev_cycle) tmp = 0;
+        fn = alloc_printf("bitmap_%llu_%d", queue_cycle, tmp++);
+        bitmap_changed = 1;
+        write_bitmap(fn, trace_bits);
+        prev_cycle = queue_cycle;
+        ck_free(fn); */
+
+
         clock_t tm = clock();
         hnb = has_new_bits_entropy(virgin_bits);
         tm = clock() - tm;
-        //LOG("Time of execution has_new_bits - %f", (double) tm / CLOCKS_PER_SEC);
         if (!(hnb)) {
 
             if (crash_mode) total_crashes++;
@@ -5778,12 +5800,13 @@ EXP_ST void suit_rel_fls(struct state_files *sf) {
 
     u32 j = 0;
 
-    mode = cur_st->change_type_mode ? MAX_COV : type_mode;
+    mode = cur_st->change_type_mode ? MIN_COV : type_mode;
 
     switch (mode) {
 
-        case MIN_COV:
-            for (u32 i = r_size - 1; i >= 0; i--) {
+        case MIN_COV: {
+            u32 i = r_size;
+            while (i--) {
                 if (j < MAX_SIZE_SUIT) {
                     if (!r[i]->marker_1) {
                         *reset = 0;
@@ -5794,6 +5817,7 @@ EXP_ST void suit_rel_fls(struct state_files *sf) {
                 } else break;
             }
             break;
+        }
         case MAX_COV: {
             for (u32 i = 0; i < r_size; i++) {
                 if (j < MAX_SIZE_SUIT) {
@@ -9674,6 +9698,8 @@ int main(int argc, char **argv) {
 #ifdef ENTROPY_EVALUATION
     entropy_evl = ck_alloc(sizeof(entropy_t));
     create_entropy(entropy_evl, 100, 0xff);
+    memcpy(prev_virgin_bits, virgin_bits, MAP_SIZE);
+    memset(stat_entropy, 0, MAP_SIZE << 3);
 #endif
 
     perform_dry_run(use_argv);
@@ -9696,8 +9722,7 @@ int main(int argc, char **argv) {
     if (!opensnoop_pid) {
         u8 *program_name, *afl_path, *opensnoop;
 
-        afl_path = ck_memdup_str(argv[0], strrchr(argv[0], '/') - argv[0]);
-        opensnoop = alloc_printf("%s/opensnoop/opensnoop", afl_path);
+        opensnoop = "/usr/share/bcc/tools/opensnoop";
 
         program_name = strrchr(target_path, '/') + 1;
         u8 *arg[4] = {"", "-n", program_name, NULL};
@@ -9733,9 +9758,21 @@ int main(int argc, char **argv) {
         u8 skipped_fuzz;
 
 #ifdef ENTROPY_EVALUATION
+        struct queue_entry *qq = queue_cur;
+        if (!queue_cur)
+            qq = queue;
+        add_to_entropy_elements(entropy_evl, qq->entropy_el, virgin_bits, prev_virgin_bits, stat_entropy);
         update_corpus_distr(entropy_evl);
-        if (queue_cur)
-            LOG("\nCur entropy %f\n", queue_cur->entropy_el->energy);
+
+        entropy_el_t *entropy_el = ck_alloc(sizeof(entropy_el_t));
+        biased_entropy(entropy_evl, entropy_el);
+
+        LOG("\n\t%llu:Cur entropy ---\tfname:%s entropy: %f: %f\n",
+            queue_cycle, qq->fname, qq->entropy_el->energy, entropy_el->energy);
+
+        g_hash_table_unref(entropy_el->bitmap_freq);
+        ck_free(entropy_el);
+
 #endif
 
         if (next_index >= out_fns_size) next_index = 0;
@@ -9791,7 +9828,7 @@ int main(int argc, char **argv) {
         }
 
         memcpy(prev_virgin_bits, virgin_bits, MAP_SIZE);
-        memset(stat_entropy, 0, MAP_SIZE);
+        memset(stat_entropy, 0, MAP_SIZE << 3);
 
         cur_st->prev_skip = skipped_fuzz = fuzz_one(use_argv);
 
