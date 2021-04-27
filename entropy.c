@@ -239,16 +239,16 @@ void add_rare_bitmap(entropy_t *entropy) {
     ptr_array_t *s = entropy->entropy_els;
     u32 s_size = s->len;
 
-    ptr_array_t *array = g_ptr_array_new_with_free_func(free);
+    ptr_array_t *rare_bitmaps = entropy->rare_bitmaps;//g_ptr_array_new_with_free_func(free);
     g_hash_table_iter_init(&iter, entropy->global_freqs);
 
     while (g_hash_table_iter_next(&iter, (void **) &key, (void **) &val))
-        g_ptr_array_add(array, (void **) &val);
+        g_ptr_array_add(rare_bitmaps, (void **) &val);
 
-    g_ptr_array_sort(array, (GCompareFunc) int_compare);
+    g_ptr_array_sort(rare_bitmaps, (GCompareFunc) int_compare);
 
-    u32 i = array->len - 1;
-    entropy->freq_of_most_abd_rare_bitmap = **((u32 **) g_ptr_array_index(array, i));
+    u32 i = rare_bitmaps->len - 1;
+    entropy->freq_of_most_abd_rare_bitmap = **((u32 **) g_ptr_array_index(rare_bitmaps, i));
 
     while (i > entropy->num_of_rarest_bitmap ||
            entropy->freq_of_most_abd_rare_bitmap > entropy->freq_threshold) {
@@ -260,7 +260,7 @@ void add_rare_bitmap(entropy_t *entropy) {
                 el->needs_energy_update = 1;
         }
 
-        entropy->freq_of_most_abd_rare_bitmap = **((u32 **) g_ptr_array_index(array, i));
+        entropy->freq_of_most_abd_rare_bitmap = **((u32 **) g_ptr_array_index(rare_bitmaps, i));
         i--;
     }
 
