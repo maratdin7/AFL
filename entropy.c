@@ -53,8 +53,12 @@ void biased_entropy(entropy_t *entropy, entropy_el_t *entropy_el) {
     entropy_el->bitmap_freq = g_hash_table_new_full(int_hash, int_equal, free, free);
 
     for (u32 i = 0; i < l; i++) {
-        u32 *key = g_ptr_array_index(entropy->rare_bitmaps, i);
-        u32 *val = g_hash_table_lookup(entropy->global_freqs, key);
+        u32 *val = malloc(sizeof(u32));
+        memcpy(val, g_ptr_array_index(entropy->rare_bitmaps, i), sizeof(u32));
+
+        u32 *key = malloc(sizeof(u32));
+        memcpy(key, &i, sizeof(u32));
+
         g_hash_table_insert(entropy_el->bitmap_freq, key, val);
     }
 
@@ -94,6 +98,7 @@ void increment_num_exec_mutation(entropy_t *entropy, entropy_el_t *entropy_el) {
 }
 
 void update_energy(entropy_el_t *entropy_el, u32 global_num_of_species) {
+
     GHashTableIter iter;
     u32 *key, *freq;
     u32 size = g_hash_table_size(entropy_el->bitmap_freq);

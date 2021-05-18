@@ -258,7 +258,7 @@
   } while (0)
 
 #define LOG(x...) do {\
-    fprintf(stderr, "%ld: %u:", clock() / CLOCKS_PER_SEC, __LINE__);\
+    fprintf(stderr, "%u:", __LINE__);\
     fprintf(stderr, x);\
     fprintf(stderr, "\n");\
 } while (0)

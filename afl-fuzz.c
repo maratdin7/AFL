@@ -9766,11 +9766,12 @@ int main(int argc, char **argv) {
 
         entropy_el_t *entropy_el = ck_alloc(sizeof(entropy_el_t));
         biased_entropy(entropy_evl, entropy_el);
+        LOG("%llu:Cur entropy --- fname:%s entropy: %f\n", queue_cycle, qq->fname, entropy_el->energy);
 
-        LOG("\n\t%llu:Cur entropy ---\tfname:%s entropy: %f: %f\n",
-            queue_cycle, qq->fname, qq->entropy_el->energy, entropy_el->energy);
+//        LOG("\n\t%llu:Cur entropy ---\tfname:%s entropy: %f: %f\n",
+//            queue_cycle, qq->fname, qq->entropy_el->energy, entropy_el->energy);
 
-        g_hash_table_unref(entropy_el->bitmap_freq);
+        g_hash_table_destroy(entropy_el->bitmap_freq);
         ck_free(entropy_el);
 
 #endif
