@@ -21,6 +21,8 @@
    Written and maintained by Michal Zalewski <lcamtuf@google.com>
 */
 
+#define DEBUG_BUILD
+
 #ifndef _HAVE_CONFIG_H
 #define _HAVE_CONFIG_H
 

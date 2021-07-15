@@ -59,9 +59,9 @@ typedef struct weight_seed_s weight_seed_t;
 
 void create_entropy(entropy_t *entropy, u32 num_of_rarest_bitmap, u32 freq_threshold);
 
-void create_entropy_el(entropy_t *entropy, entropy_el_t *entropy_el);
+entropy_el_t *create_entropy_el(entropy_t *entropy);
 
-void biased_entropy(entropy_t *entropy, entropy_el_t *entropy_el);
+double biased_entropy(entropy_t *entropy, entropy_el_t *entropy_el);
 
 weight_seed_t *set_weight_seed(void *weight_seed, u32 index, double weight);
 
@@ -80,5 +80,9 @@ void add_global_bitmap(entropy_t *entropy, u32 key);      //
 void add_rare_bitmap(entropy_t *entropy);
 
 u32 update_corpus_distr(entropy_t *entropy); //
+
+void entropy_destroy(entropy_t *e);
+
+void entropy_el_destroy(void *e_el);
 
 #endif

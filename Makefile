@@ -29,7 +29,7 @@ SH_PROGS    = afl-plot afl-cmin afl-whatsup
 
 CFLAGS     ?= -O0 -gdwarf-4 -funroll-loops
 CFLAGS     += -Wall -D_FORTIFY_SOURCE=2 -g3 -Wno-pointer-sign \
-	      -DAFL_PATH=\"$(HELPER_PATH)\" -DDOC_PATH=\"$(DOC_PATH)\" \
+	      -DAFL_PATH=\"$(HELPER_PATH)\"  -DDOC_PATH=\"$(DOC_PATH)\" \
 	      -DBIN_PATH=\"$(BIN_PATH)\"  $(shell pkg-config --cflags glib-2.0)
 
 LDFLAGS		+= $(shell pkg-config --libs glib-2.0) -lm
