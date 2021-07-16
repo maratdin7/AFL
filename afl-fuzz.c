@@ -3765,7 +3765,6 @@ static u8 save_if_interesting(char **argv,
 
         keeping = 1;
 
-        ck_free(fn);
     }
 
     switch (fault) {
@@ -5519,11 +5518,7 @@ static s32 state_pid(u8 *dir) {
 
 static void setup_dirs_fds();
 
-static void change_index(u32 current_index, u32 new_index) {
-    static u32 tmp = 0;
-    tmp++;
-    struct state_files *st = afl_state + current_index;
-
+EXP_ST void setStateFl(struct state_files *st) {
     st->out_file = out_file;
     st->out_dir = out_dir;
 
@@ -5560,16 +5555,17 @@ static void change_index(u32 current_index, u32 new_index) {
     st->q_prev100 = q_prev100;
     st->out_dir_fd = out_dir_fd;
     st->top_rated = top_rated;
+}
 
-    st = afl_state + new_index;
+EXP_ST void getStateFl(struct state_files *st, u32 cur_i, u32 new_i) {
 
     out_file = st->out_file;
-    if (!out_file && new_index != 0)
-        out_file = ck_strdup(out_fns[new_index]);
+    if (!out_file && new_i != 0)
+        out_file = ck_strdup(out_fns[new_i]);
 
     out_dir = st->out_dir;
-    if (!out_dir && new_index != 0) {
-        out_dir = alloc_printf("%s/%d/", afl_state[0].out_dir, new_index);
+    if (!out_dir && new_i != 0) {
+        out_dir = alloc_printf("%s/%d/", afl_state[0].out_dir, new_i);
         setup_dirs_fds();
     }
 
@@ -5613,9 +5609,9 @@ static void change_index(u32 current_index, u32 new_index) {
     top_rated = st->top_rated;
 
     s32 state_fd;
-    if (current_index != new_index) {
+    if (cur_i != new_i) {
 
-        if (current_index == 0) {
+        if (cur_i == 0) {
 
             state_fd = state_pid(out_dir);
             std_fd = dup(STDOUT_FILENO);
@@ -5627,6 +5623,18 @@ static void change_index(u32 current_index, u32 new_index) {
 
         close(state_fd);
     }
+}
+
+EXP_ST void change_index(u32 current_index, u32 new_index) {
+    static u32 tmp = 0;
+    tmp++;
+    struct state_files *st = afl_state + current_index;
+
+    setStateFl(st);
+
+    st = afl_state + new_index;
+
+    getStateFl(st, current_index, new_index);
 
     LOG(" Change index:\ncur_index - %d new_index - %d\n New dir %s", current_index, new_index, out_dir);
     cur_index = new_index;
@@ -9713,9 +9721,9 @@ int main(int argc, char **argv) {
 
     if (!out_file) setup_stdio_file();
 
-    out_fns[0] = out_file ? ck_strdup(out_file) : NULL;
+    setStateFl(afl_state);
 
-    afl_state[0].out_dir = out_dir;
+    out_fns[0] = out_file ? ck_strdup(out_file) : NULL;
 
     check_binary(argv[optind]);
 
@@ -9952,9 +9960,9 @@ int main(int argc, char **argv) {
     entropy_destroy(entropy_evl);
 #endif
 
-    destroy_queue(queue);
-    for (u32 j = 1; j < out_fns_size; j++) {
-        destroy_queue(afl_state[j].queue);
+    for (u32 j = 0; j < out_fns_size; j++) {
+        destroy_state(afl_state + j);
+        ck_free(out_fns[j]);
 
         LOG("Free memory for %d", j);
     }
