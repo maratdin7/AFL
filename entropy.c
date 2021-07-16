@@ -26,18 +26,16 @@ void create_entropy(entropy_t *entropy, u32 num_of_rarest_bitmap, u32 freq_thres
 
         entropy->freq_of_most_abd_rare_bitmap = 1;
         entropy->global_freqs = g_hash_table_new_full(int_hash, int_equal, free, free);
-        entropy->rare_bitmaps = g_ptr_array_new();
+        entropy->rare_bitmaps = g_ptr_array_new_with_free_func(free);
         entropy->weights = g_ptr_array_new_with_free_func(free);
-        entropy->entropy_els = g_ptr_array_new_with_free_func(entropy_el_destroy);
+        entropy->entropy_els = g_ptr_array_new_with_free_func(free);
 
         entropy->num_executed_mutations = 0;
         entropy->distr_needs_update = 1;
         srand(clock());
 }
 
-entropy_el_t * create_entropy_el(entropy_t *entropy) {
-    entropy_el_t *entropy_el = ck_alloc(sizeof(entropy_el_t));
-
+void create_entropy_el(entropy_t *entropy, entropy_el_t *entropy_el) {
     u32 l = entropy->rare_bitmaps->len;
     entropy_el->energy = !l ? 1.0 : log(l);
     entropy_el->sum_incidence = l;
@@ -46,27 +44,20 @@ entropy_el_t * create_entropy_el(entropy_t *entropy) {
     entropy_el->num_exec_mutations = 0;
 
     g_ptr_array_add(entropy->entropy_els, entropy_el);
-
-    return entropy_el;
-}
-
-void *ck_free_wrap(void *pnt) {
-    ck_free(pnt);
 }
 
 double biased_entropy(entropy_t *entropy, entropy_el_t *entropy_el) {
 
     u32 l = entropy->rare_bitmaps->len;
 
-    entropy_el->bitmap_freq = g_hash_table_new_full(int_hash, int_equal, ck_free_wrap, ck_free_wrap);
+    entropy_el->bitmap_freq = g_hash_table_new_full(int_hash, int_equal, free, free);
 
     for (u32 i = 0; i < l; i++) {
-        u32 *val = ck_alloc(sizeof(u32));
+        u32 *val = malloc(sizeof(u32));
         memcpy(val, g_ptr_array_index(entropy->rare_bitmaps, i), sizeof(u32));
 
-        u32 *key = ck_alloc(sizeof(u32));
+        u32 *key = malloc(sizeof(u32));
         memcpy(key, &i, sizeof(u32));
-//        u32 *key = ck_memdup(&i, sizeof(u32));
 
         g_hash_table_insert(entropy_el->bitmap_freq, key, val);
     }
@@ -340,23 +331,4 @@ u32 update_corpus_distr(entropy_t *entropy) {
                 weight_changed = 0;
         }
     return weight_changed;
-}
-
-void entropy_destroy(entropy_t *e) {
-
-
-    g_ptr_array_unref(e->rare_bitmaps);
-
-    g_hash_table_destroy(e->global_freqs);
-
-    g_ptr_array_free(e->weights, TRUE);
-    g_ptr_array_free(e->entropy_els, TRUE);
-
-    ck_free(e);
-}
-
-void entropy_el_destroy(void *e_el) {
-    entropy_el_t *el = (entropy_el_t *) e_el;
-    g_hash_table_destroy(el->bitmap_freq);
-    ck_free(e_el);
 }

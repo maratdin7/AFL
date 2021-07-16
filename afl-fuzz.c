@@ -92,20 +92,19 @@
 #  define EXP_ST static
 #endif /* ^AFL_LIB */
 
-struct rel_fl_s {
-    u8 *in_fl;
-    u8 *out_fl;
-
-    struct rel_fl_s *next;
+struct rel_file {
+    u8 *fname;
+    u32 len;
+    u32 index;
 };
 
-struct rel_fls_s {           // перемести куда-нибудь
-    struct rel_fl_s *rel_fls;
+struct rel_files_s {           // перемести куда-нибудь
+    struct rel_file set[MAX_OUT_FNS];
     u32 set_size,
             marker_1,
             marker_2,
             paths,
-            crashes;
+            crashs;
 
     u64 last_path_time,
             last_crash_time;
@@ -115,7 +114,7 @@ struct rel_fls_s {           // перемести куда-нибудь
     entropy_el_t *entropy_el;
 };
 
-typedef struct rel_fls_s rel_fls_t;
+typedef struct rel_files_s rel_files_t;
 
 #define MAX_SIZE_SUIT 10
 #define RESET_SUIT_FLS 5
@@ -172,12 +171,12 @@ struct state_files {
 
     s32 out_dir_fd;           /* FD of the lock file              */
 
-    rel_fls_t *sets_rel_fls[MAP_SIZE],
-            *favourite[MAX_SIZE_SUIT],
+    rel_files_t *sets_rel_fls[MAP_SIZE],
+            *favorit[MAX_SIZE_SUIT],
             *suit[MAX_SIZE_SUIT];
 
     u32 sets_rel_fls_size,
-            favourite_size,
+            favorit_size,
             suit_size;
     u32 reset, prev_skip;
 
@@ -188,17 +187,17 @@ struct state_files {
 entropy_t *entropy_evl = NULL;
 double entropy_evl_energy;
 
-struct ignore_fl_s {
+struct ignore_fls_s {
     u8 is_dir;
     u8 *fn;
     u32 len;
 };
 
-typedef struct ignore_fl_s ignore_fl_t;
+typedef struct ignore_fls_s ignore_fls_t;
 
 EXP_ST u32 related_fls[MAX_OUT_FNS];
 
-EXP_ST ignore_fl_t *ignore_fls[100];
+EXP_ST ignore_fls_t *ignore_fls[100];
 EXP_ST u32 ignore_fls_size;
 
 EXP_ST struct
@@ -208,7 +207,7 @@ EXP_ST struct
 static u8 *out_fns[MAX_OUT_FNS];
 static u32 out_fns_size = 1;
 
-static u32 cur_index = 0;
+static u32 cur_index = 0;            /* Нынешний индекс                  */
 
 static s32 opensnoop_pid,            /* Opensnoop pid                */
 paths_fd,
@@ -256,7 +255,8 @@ no_cpu_meter_red,          /* Feng shui on the status screen   */
 no_arith,                  /* Skip most arithmetic ops         */
 shuffle_queue,             /* Shuffle input queue?             */
 bitmap_changed = 1,        /* Time to update bitmap?           */
-qemu_mode,                 /* Running in QEMU mode?            */
+bitmap_crash_changed = 1,
+        qemu_mode,                 /* Running in QEMU mode?            */
 skip_requested,            /* Skip request, via SIGUSR1        */
 run_over10m,               /* Run time over 10 minutes?        */
 persistent_mode,           /* Running in persistent mode?      */
@@ -391,7 +391,7 @@ struct queue_entry {
     u8 *trace_mini;                         /* Trace bytes, if kept             */
     u32 tc_ref;                             /* Trace bytes ref count            */
 
-    rel_fls_t *set_rel_fls;
+    rel_files_t *set_rel_fls;
 
     entropy_el_t *entropy_el;
 
@@ -405,10 +405,10 @@ static struct queue_entry *queue,           /* Fuzzing queue (linked list)      
 *queue_top,                         /* Top of the list                  */
 *q_prev100;                         /* Previous 100 marker              */
 
+static struct queue_entry/* Top entries for bitmap bytes     */  /***/
+*top_rated_buf[MAP_SIZE];
 
-
-static struct queue_entry **top_rated; /* Top entries for bitmap bytes     */  /***/
-
+struct queue_entry **top_rated = top_rated_buf;
 struct extra_data {
     u8 *data;                               /* Dictionary token data            */
     u32 len;                                /* Dictionary token length          */
@@ -479,9 +479,9 @@ enum {
 
 static void write_bitmap_custom(u8 *fn, const u8 *trace, u32 trace_len, u8 *fn_path) {
 
-    u32 repeat = 0;
+    u32 fd, repeat = 0;
 
-    s32 fd = open(fn, O_RDWR | O_CREAT | O_TRUNC, 0600);
+    fd = open(fn, O_RDWR | O_CREAT | O_TRUNC, 0600);
     if (fd < 0) PFATAL("Unable to create '%s'", fn);
 
     LOG("bitmap_%d = %s", number_bitmap, fn_path);
@@ -1003,32 +1003,6 @@ EXP_ST void destroy_queue(struct queue_entry *q) {
 
 }
 
-void destroy_ignore_fl(ignore_fl_t **ignore_fl) {
-    for (u32 i = 0; i < ignore_fls_size; i++) {
-        ignore_fl_t *i_fl = ignore_fl[i];
-        ck_free(i_fl->fn);
-        ck_free(i_fl);
-    }
-}
-
-void destroy_rel_fls(rel_fls_t *rel_fls) {
-
-    ck_free(rel_fls->rel_fls);
-    ck_free(rel_fls);
-
-}
-
-void destroy_state(struct state_files *st) {
-    destroy_queue(st->queue);
-
-    for (u32 i = 0; i < st->sets_rel_fls_size; i++) {
-        destroy_rel_fls(st->sets_rel_fls[i]);
-    }
-
-    ck_free(st->top_rated);
-    ck_free(st->out_file);
-    ck_free(st->out_dir);
-}
 
 /* Write bitmap to file. The bitmap is useful mostly for the secret
    -B option, to focus a separate fuzzing session on a particular
@@ -1164,8 +1138,6 @@ static inline u32 prev_freq_index(u8 cur) {
             return 1;
         case 1:
             return 0;
-        default:
-            FATAL("Unknown freq %d", cur);
     }
 }
 
@@ -1237,9 +1209,9 @@ static inline u8 has_new_bits_entropy(u8 *virgin_map) {
 }
 
 static void
-add_to_entropy_elements(entropy_t *entropy, entropy_el_t *entropy_el, const u8 *virgin, const u8 *prev_virgin,
-                        u8 *stat) {
+add_to_entropy_elements(entropy_t *entropy, entropy_el_t *entropy_el, u8 *virgin, u8 *prev_virgin, u8 *stat) {
 
+    u8 *vir = (u8 *) virgin;
     u8 new_bits;
 
     for (u32 i = 0; i < MAP_SIZE; i++) {
@@ -1859,7 +1831,7 @@ static int compare_double(const void *p1, const void *p2) {
     return (d > EPS) ? 1 : 0;
 }
 
-static double mark_sets(rel_fls_t *a) {
+static double mark_sets(rel_files_t *a) {
     u64 tmp = 0;
     if (last_path_time >= a->last_path_time &&
         last_crash_time >= a->last_crash_time) {
@@ -1869,13 +1841,13 @@ static double mark_sets(rel_fls_t *a) {
 
     } else
         FATAL("Do not understand the time difference.\n\tcur_index %d", cur_index);
-    u32 d = a->paths + a->crashes;
+    u32 d = a->paths + a->crashs;
     return d ? (double) tmp / d : DBL_MAX;
 }
 
 static int compare_sets_rel_fls(const void *p1, const void *p2) {
-    rel_fls_t *s1 = *((rel_fls_t **) p1),
-            *s2 = *((rel_fls_t **) p2);
+    rel_files_t *s1 = *((rel_files_t **) p1),
+            *s2 = *((rel_files_t **) p2);
 
     return compare_double(&s1->mark, &s2->mark);
 }
@@ -2870,9 +2842,6 @@ static void write_to_testcase(void *out_buf, u32 len, u8 *fn) {
 
     } else lseek(fd, 0, SEEK_SET);
 
-    if (out_buf == NULL)
-        FATAL("out_buf null");
-
     ck_write(fd, out_buf, len, fn);
 
     if (!fn) {
@@ -2885,60 +2854,31 @@ static void write_to_testcase(void *out_buf, u32 len, u8 *fn) {
 
 }
 
-static inline u32 get_fl_len(s32 fd) {
-
-    s32 l = lseek(fd, 0, SEEK_END);
-    lseek(fd, 0, SEEK_SET);
-
-    if (l < 0) PFATAL("Unable to run lseek");
-
-    u32 len = (u32) l;
-
-    return len;
-}
-
-static inline u8 *read_fl(u8 *fn, u32 *len) {
-
-    s32 fd = open(fn, O_RDONLY);
-
-    if (fd < 0) PFATAL("Unable to open '%s'", fn);
-
-    *len = get_fl_len(fd);
-    u8 *ret = ck_alloc((*len) * sizeof(u8));
-    ck_read(fd, ret, *len, fn);
-
-    close(fd);
-
-    return ret;
-}
-
-static void write_to_rel_fls_testcase(rel_fls_t *dataset) {
-    struct rel_fl_s *d;
-    u32 related_buf_len;
-    u8 *related_buf;
+static void write_to_rel_fls_testcase(rel_files_t *dataset) {
 
     if (dataset == NULL) return;
 
-    d = dataset->rel_fls;
+    for (u32 i = 0; i < dataset->set_size; i++) {
+        u32 related_buf_len;
+        u8 *related_buf;
 
-    while (d) {
-        related_buf = read_fl(d->in_fl, &related_buf_len);
-        write_to_testcase(related_buf, related_buf_len, d->out_fl);
-
-        d = d->next;
+        struct rel_file c = dataset->set[i];
+        related_buf = ck_copy(c.fname, &related_buf_len);
+        write_to_testcase(related_buf, related_buf_len, afl_state[c.index].out_file);
 
         ck_free(related_buf);
     }
 }
 
-static void write_to_multiple_testcase(u8 *out_buf, u32 len, rel_fls_t *dataset) {
+static void write_to_multiple_testcase(u8 *out_buf, u32 len, rel_files_t *dataset) {
+
     write_to_testcase(out_buf, len, out_file);
     write_to_rel_fls_testcase(dataset);
 }
 
 /* The same, but with an adjustable gap. Used for trimming. */
 
-static void write_with_gap(void *mem, u32 len, u32 skip_at, u32 skip_len, rel_fls_t *dataset) {
+static void write_with_gap(void *mem, u32 len, u32 skip_at, u32 skip_len, rel_files_t *dataset) {
 
     s32 fd = out_fd;
     u32 tail_len = len - skip_at - skip_len;
@@ -2976,7 +2916,7 @@ static void show_stats(void);
 static u8 calibrate_case(char **argv,
                          struct queue_entry *q,
                          u8 *use_mem,
-                         rel_fls_t *dataset,
+                         rel_files_t *dataset,
                          u32 handicap,
                          u8 from_queue) {
 
@@ -3179,10 +3119,11 @@ static void perform_dry_run(char **argv) {
 
         close(fd);
 
-        rel_fls_t *empty = NULL;
+        rel_files_t *empty = NULL;
 
 #ifdef ENTROPY_EVALUATION
-        queue_top->entropy_el = create_entropy_el(entropy_evl);
+        queue_top->entropy_el = ck_alloc(sizeof(entropy_t));
+        create_entropy_el(entropy_evl, queue_top->entropy_el);
 #endif
 
         res = calibrate_case(argv, q, use_mem, empty, 0, 1);
@@ -3594,50 +3535,45 @@ static void write_crash_readme(void) {
 
 }
 
+static void save_related_fls(u8 *fn, u32 len, u32 current_index, rel_files_t *ds) {
 
-EXP_ST rel_fls_t *create_rel_fls(u8 *in_fl, u8 *out_fl, rel_fls_t *dataset) {
-    rel_fls_t *rel_fls = ck_alloc(sizeof(rel_fls_t));
-
-    rel_fls->rel_fls = ck_alloc(sizeof(struct rel_fl_s));
-
-    rel_fls->rel_fls->next = dataset->rel_fls;
-    rel_fls->rel_fls->in_fl = ck_strdup(in_fl);
-    rel_fls->rel_fls->out_fl = ck_strdup(out_fl);
-    rel_fls->mark = DBL_MAX;
-
-    return rel_fls;
-}
-
-
-EXP_ST void save_related_fls(u8 *fn, u32 len, u32 current_index, rel_fls_t *ds) {
     struct state_files *st;
-    rel_fls_t *s;
+    rel_files_t *s;
     u32 j;
 
     for (u32 i = 1; i < MAX_OUT_FNS; i++) {
+
         if (related_fls[i] && i != current_index) {
+
             st = afl_state + i;
 
             j = st->sets_rel_fls_size;
+            s = malloc(sizeof(rel_files_t));
+            s->set[0].fname = ck_strdup(fn);
+            s->set[0].len = len;
+            s->set[0].index = current_index;
+            s->mark = DBL_MAX;
+            s->marker_1 = 0;
+            s->marker_2 = 0;
+            s->paths = 0;
+            s->crashs = 0;
+            s->set_size = 1;
 
 //            if (type_mode == ENTROPY) {
 //                s->entropy_el = ck_alloc(sizeof(entropy_el_t));
 //                create_entropy_el(st->entropy, s->entropy_el);
 //            }
 
-            if (st->sets_rel_fls_size == 1) // чтобы не добавлять уже добавленный set
-                return;
-
-            st->sets_rel_fls[j] =
-                    create_rel_fls(fn, afl_state[current_index].out_file, ds);
+            st->sets_rel_fls[j] = s;
             st->sets_rel_fls_size++;
 
             LOG("Save related file - %s for file - %d", fn, i);
+
         }
     }
 }
 
-static void save_set(u8 *fn_mem, rel_fls_t *dataset) {
+static void save_set(u8 *fn_mem, rel_files_t *dataset) {
 
     u8 *fn = "",
             *line = "";
@@ -3651,21 +3587,18 @@ static void save_set(u8 *fn_mem, rel_fls_t *dataset) {
 
     size = dataset != NULL ? dataset->set_size : 0;
 
-    for (u32 i = 0; i < size; i++) {
-        u8 *l = line;
-        line = alloc_printf("%s%s ", line, dataset->rel_fls[i].in_fl);
-        ck_free(l);
-    }
+    for (u32 i = 0; i < size; i++)
+        line = alloc_printf("%s%s ", line, dataset->set[i].fname);
 
     line = alloc_printf("%s%s\n", line, fn_mem);
 
     lseek(fd, 0, SEEK_END);
     ck_write(fd, line, strlen(line), fn);
-
     ck_free(line);
     ck_free(fn);
-
     close(fd);
+
+    LOG("Save set - OK");
 }
 
 //static void check_el(entropy_t *e, entropy_el_t *e_el, u32 key) {
@@ -3680,13 +3613,17 @@ static void save_set(u8 *fn_mem, rel_fls_t *dataset) {
 static u8 save_if_interesting(char **argv,
                               void *mem,
                               u32 len,
-                              rel_fls_t *dataset,
+                              rel_files_t *dataset,
                               u8 fault) {
+
+    struct state_files *st;
 
     u8 *fn = "";
     u8 hnb;
     s32 fd;
     u8 keeping = 0, res;
+
+    st = afl_state + cur_index;
 
     if (fault == crash_mode) {
 
@@ -3731,10 +3668,16 @@ static u8 save_if_interesting(char **argv,
             queued_with_cov++;
         }
 
+/*        u8 *fn_bitmap = alloc_printf("bitmap_%d", test);
+        write_bitmap_custom(fn_bitmap, trace_bits, MAP_SIZE, fn);
+        test++;
+        ck_free(fn_bitmap);*/
+
         queue_top->exec_cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
 
 #ifdef ENTROPY_EVALUATION
-        queue_top->entropy_el = create_entropy_el(entropy_evl);
+        queue_top->entropy_el = ck_alloc(sizeof(entropy_t));
+        create_entropy_el(entropy_evl, queue_top->entropy_el);
 #endif
 
         /* Try t calibrate inline; this also calls update_bitmap_score() when
@@ -3748,12 +3691,14 @@ static u8 save_if_interesting(char **argv,
         save_related_fls(fn, len, cur_index, dataset);
 
         if (dataset != NULL) {
+
             dataset->paths++;
             dataset->last_path_time = last_path_time;
             queue_top->set_rel_fls = dataset;
 
 //            if (type_mode == ENTROPY && cur_st->entropy != NULL)
 //                check_el(cur_st->entropy, dataset->entropy_el, queue_top->exec_cksum);
+
         }
 
         fd = open(fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
@@ -5443,8 +5388,8 @@ static void save_state_fl(u8 *first_fn, s32 first_fd, u8 *second_fn, s32 second_
     u32 first_len, second_len;
     u8 *first_buf, *second_buf;
 
-    first_len = get_fl_len(first_fd);
-    second_len = get_fl_len(second_fd);
+    first_len = ck_len(first_fd);
+    second_len = ck_len(second_fd);
 
     first_buf = ck_alloc(sizeof(u8) * (first_len + 1));
     second_buf = ck_alloc(sizeof(u8) * (second_len + 1));
@@ -5518,8 +5463,12 @@ static s32 state_pid(u8 *dir) {
 
 static void setup_dirs_fds();
 
-EXP_ST void setStateFl(struct state_files *st) {
-    st->out_file = out_file;
+static void change_index(u32 current_index, u32 new_index) {
+    static u32 tmp = 0;
+    tmp++;
+    struct state_files *st = afl_state + current_index;
+
+    st->out_file = out_file;     // макрос!!! один с набором
     st->out_dir = out_dir;
 
     st->queued_paths = queued_paths;
@@ -5555,17 +5504,16 @@ EXP_ST void setStateFl(struct state_files *st) {
     st->q_prev100 = q_prev100;
     st->out_dir_fd = out_dir_fd;
     st->top_rated = top_rated;
-}
 
-EXP_ST void getStateFl(struct state_files *st, u32 cur_i, u32 new_i) {
+    st = afl_state + new_index;
 
     out_file = st->out_file;
-    if (!out_file && new_i != 0)
-        out_file = ck_strdup(out_fns[new_i]);
+    if (!out_file && new_index != 0)
+        out_file = ck_strdup(out_fns[new_index]);
 
     out_dir = st->out_dir;
-    if (!out_dir && new_i != 0) {
-        out_dir = alloc_printf("%s/%d/", afl_state[0].out_dir, new_i);
+    if (!out_dir && new_index != 0) {
+        out_dir = alloc_printf("%s/%d/", afl_state[0].out_dir, new_index);
         setup_dirs_fds();
     }
 
@@ -5604,14 +5552,14 @@ EXP_ST void getStateFl(struct state_files *st, u32 cur_i, u32 new_i) {
     out_dir_fd = st->out_dir_fd;
 
     if (!st->top_rated)
-        st->top_rated = ck_alloc(sizeof(struct queue_entry *) * MAP_SIZE);
+        st->top_rated = calloc(MAP_SIZE, sizeof(struct queue_entry *));
 
     top_rated = st->top_rated;
 
     s32 state_fd;
-    if (cur_i != new_i) {
+    if (current_index != new_index) {
 
-        if (cur_i == 0) {
+        if (current_index == 0) {
 
             state_fd = state_pid(out_dir);
             std_fd = dup(STDOUT_FILENO);
@@ -5623,25 +5571,13 @@ EXP_ST void getStateFl(struct state_files *st, u32 cur_i, u32 new_i) {
 
         close(state_fd);
     }
-}
-
-EXP_ST void change_index(u32 current_index, u32 new_index) {
-    static u32 tmp = 0;
-    tmp++;
-    struct state_files *st = afl_state + current_index;
-
-    setStateFl(st);
-
-    st = afl_state + new_index;
-
-    getStateFl(st, current_index, new_index);
 
     LOG(" Change index:\ncur_index - %d new_index - %d\n New dir %s", current_index, new_index, out_dir);
     cur_index = new_index;
     cur_st = afl_state + cur_index;
 }
 
-EXP_ST void queue_setting(char **argv, u8 *out_buf, s32 len, rel_fls_t *dataset) {
+EXP_ST void queue_setting(char **argv, u8 *out_buf, s32 len, rel_files_t *dataset) {
 
     add_to_queue(ck_strdup(out_fns[cur_index]), len, 0);
 
@@ -5650,7 +5586,8 @@ EXP_ST void queue_setting(char **argv, u8 *out_buf, s32 len, rel_fls_t *dataset)
     queue->set_rel_fls = dataset;
 
 #ifdef ENTROPY_EVALUATION
-    queue->entropy_el = create_entropy_el(entropy_evl);
+    queue->entropy_el = ck_alloc(sizeof(entropy_t));
+    create_entropy_el(entropy_evl, queue->entropy_el);
 #endif
 
     calibrate_case(argv, queue, out_buf, dataset, 0, 1);
@@ -5672,7 +5609,7 @@ EXP_ST u32 file_filter(u8 *fn) {
         }
     }
     for (u32 i = 0; i < ignore_fls_size; i++) {
-        ignore_fl_t *i_fl = ignore_fls[i];
+        ignore_fls_t *i_fl = ignore_fls[i];
         u32 len = i_fl->len;
         if (!i_fl->is_dir)
             len++;
@@ -5694,7 +5631,7 @@ EXP_ST void read_ignore(u8 *fn) {
         n = fscanf(f, "%ms", &ignore_fn);
         if (n == 1) {
             u32 len = strlen(ignore_fn);
-            ignore_fls[i] = ck_alloc(sizeof(ignore_fl_t));
+            ignore_fls[i] = ck_alloc(sizeof(ignore_fls_t));
             if (ignore_fn[len - 1] == '/')
                 ignore_fls[i]->is_dir = 1;
             ignore_fls[i]->fn = ck_memdup_str(ignore_fn, len);
@@ -5710,12 +5647,13 @@ EXP_ST void read_ignore(u8 *fn) {
         OKF("find %d ignore files", ignore_fls_size);
 }
 
-EXP_ST void save_new_out_fl(char **argv, u8 *new_fl, u8 *cur_buf, u32 len, rel_fls_t *dataset) {
-    u32 i, prev_index;
-    s32 fd, buf_len;
+EXP_ST void save_new_out_fl(char **argv, u8 *new_fl, u8 *cur_buf, u32 len, rel_files_t *dataset) {
+
+    u32 i, prev_index, buf_len;
+    s32 fd;
     u8 *fn, *buf, *tmp, *state;
 
-    rel_fls_t *d;
+    rel_files_t *d;
 
     i = out_fns_size;
     out_fns_size++;
@@ -5740,22 +5678,37 @@ EXP_ST void save_new_out_fl(char **argv, u8 *new_fl, u8 *cur_buf, u32 len, rel_f
 
     close(fd);
 
-    d = create_rel_fls(fn, afl_state[cur_index].out_file, dataset);
+    d = malloc(sizeof(rel_files_t));
+    d->set[0].fname = ck_strdup(fn);
+    d->set[0].len = len;
+    d->set[0].index = prev_index;
+    d->set_size = (dataset != NULL) ? dataset->set_size + 1 : 1;
+    d->mark = DBL_MAX;
+    d->marker_1 = 0;
+    d->marker_2 = 0;
+    d->paths = 0;
+    d->crashs = 0;
 
     LOG("Save related file - %s for file - %d", fn, cur_index);
 
+    for (u32 j = 1; j < d->set_size; j++)
+        d->set[j] = dataset->set[j - 1];
+
+    u32 hash;
     if (type_mode == ENTROPY) {
         entropy_t *e = ck_alloc(sizeof(entropy_t));
         create_entropy(e, 100, 0xff);
 
-        d->entropy_el = create_entropy_el(e);
+        d->entropy_el = ck_alloc(sizeof(entropy_el_t));
+        hash = hash32(trace_bits, MAP_SIZE, HASH_CONST);
+        create_entropy_el(e, d->entropy_el);
         cur_st->entropy = e;
     }
 
     cur_st->sets_rel_fls[0] = d;
     cur_st->sets_rel_fls_size = 1;
 
-    buf = read_fl(new_fl, &buf_len);
+    buf = ck_copy(new_fl, &buf_len);
 
     tmp = strrchr(new_fl, '/');
     tmp = (tmp != NULL) ? tmp + 1 : new_fl;
@@ -5764,7 +5717,7 @@ EXP_ST void save_new_out_fl(char **argv, u8 *new_fl, u8 *cur_buf, u32 len, rel_f
     unlink(state);
 
     fd = open(state, O_CREAT | O_WRONLY, 0600);
-    if (fd < 0) PFATAL("Unable to open '%s'", state);
+    if (fd < 0) PFATAL("Unable to open '%s'", fn);
 
     ck_write(fd, buf, buf_len, state);
 
@@ -5774,14 +5727,13 @@ EXP_ST void save_new_out_fl(char **argv, u8 *new_fl, u8 *cur_buf, u32 len, rel_f
 
     change_index(cur_index, prev_index);
 
-    ck_free(fn);
     ck_free(state);
     ck_free(buf);
 
     OKF("File - %s added", new_fl);
 }
 
-EXP_ST void find_new_out_fls(char **argv, u8 *out_buf, u32 len, rel_fls_t *dataset) {
+EXP_ST void find_new_out_fls(char **argv, u8 *out_buf, u32 len, rel_files_t *dataset) {
 
     s32 pid;
     u8 *fn, *text;
@@ -5812,7 +5764,7 @@ EXP_ST void suit_rel_fls(struct state_files *);
 EXP_ST void reset_suit_rel_fls(struct state_files *sf) {
 
     u32 *s_size, r_size, *reset;
-    rel_fls_t **r = sf->sets_rel_fls;
+    rel_files_t **r = sf->sets_rel_fls;
 
     s_size = &sf->suit_size;
     r_size = sf->sets_rel_fls_size;
@@ -5835,7 +5787,7 @@ EXP_ST void suit_rel_fls(struct state_files *sf) {
      * Заполняем до предела если дошли до конца и 5 кругов нет новых данных
      * то сбрасываем счет и переделываем сбор еще раз
      */
-    rel_fls_t **s, **r;
+    rel_files_t **s, **r;
     u32 *s_size, r_size, *reset;
     u32 mode;
 
@@ -5934,14 +5886,14 @@ EXP_ST void suit_rel_fls(struct state_files *sf) {
     reset_suit_rel_fls(sf);
 }
 
-EXP_ST void favorit_sets_rel_fls(rel_fls_t **f, u32 *f_size, rel_fls_t **s, u32 s_size) {
+EXP_ST void favorit_sets_rel_fls(rel_files_t **f, u32 *f_size, rel_files_t **s, u32 s_size) {
 
     u32 i, j;
 
     for (i = 0; i < s_size; i++)
         s[i]->mark = mark_sets(s[i]);
 
-    qsort(s, s_size, sizeof(rel_fls_t *), compare_sets_rel_fls);
+    qsort(s, s_size, sizeof(rel_files_t *), compare_sets_rel_fls);
     i = 0;
     j = 0;
 
@@ -5968,7 +5920,7 @@ EXP_ST void favorit_sets_rel_fls(rel_fls_t **f, u32 *f_size, rel_fls_t **s, u32 
    trimmer uses power-of-two increments somewhere between 1/16 and 1/1024 of
    file size, to keep the stage short and sweet. */
 
-static u8 trim_case(char **argv, struct queue_entry *q, u8 *in_buf, rel_fls_t *dataset) {
+static u8 trim_case(char **argv, struct queue_entry *q, u8 *in_buf, rel_files_t *dataset) {
 
     static u8 tmp[64];
     static u8 clean_trace[MAP_SIZE];
@@ -6095,7 +6047,7 @@ static u8 trim_case(char **argv, struct queue_entry *q, u8 *in_buf, rel_fls_t *d
 EXP_ST u8 common_fuzz_stuff_1(char **argv,
                               u8 *out_buf,
                               u32 len,
-                              rel_fls_t *dataset) {
+                              rel_files_t *dataset) {
 
     u8 fault;
 
@@ -6152,7 +6104,7 @@ EXP_ST u8 common_fuzz_stuff_1(char **argv,
     return 0;
 }
 
-static void replenishment(rel_fls_t **d, u32 *j, rel_fls_t **a, u32 a_size) {
+static void replenishment(rel_files_t **d, u32 *j, rel_files_t **a, u32 a_size) {
 
     for (u32 i = 0; i < a_size; i++) {
         if (!a[i]->marker_2) {
@@ -6163,8 +6115,23 @@ static void replenishment(rel_fls_t **d, u32 *j, rel_fls_t **a, u32 a_size) {
     }
 }
 
+static void
+select_datasets(rel_files_t **d, u32 *d_size, struct state_files *st, rel_files_t **p, u32 p_size) {
+
+    rel_files_t **s = st->suit,
+            **f = st->favorit;
+
+    u32 s_size = st->suit_size,
+            f_size = st->favorit_size;
+
+    replenishment(d, d_size, p, p_size);
+    replenishment(d, d_size, f, f_size);
+    replenishment(d, d_size, s, s_size);
+
+}
+
 EXP_ST u8
-common_fuzz_stuff(char **argv, u8 *out_buf, u32 len, rel_fls_t **ds, u32 ds_size, u32 *num_exec_mutation) {
+common_fuzz_stuff(char **argv, u8 *out_buf, u32 len, rel_files_t **ds, u32 ds_size, u32 *num_exec_mutation) {
 
     u32 ret = 0;
 
@@ -6175,7 +6142,7 @@ common_fuzz_stuff(char **argv, u8 *out_buf, u32 len, rel_fls_t **ds, u32 ds_size
     if (ds_size) {
         for (u32 i = 0; i < ds_size; i++) {
             if (type_mode == ENTROPY && cur_st->entropy != NULL) {
-                LOG("fn - %s\tentropy_el - %p", ds[i]->rel_fls->in_fl, ds[i]->entropy_el);
+                LOG("fn - %s\tentropy_el - %p", ds[i]->set->fname, ds[i]->entropy_el);
                 increment_num_exec_mutation(cur_st->entropy, ds[i]->entropy_el);
             }
             ret += common_fuzz_stuff_1(argv, out_buf, len, ds[i]);
@@ -6532,7 +6499,7 @@ static u8 fuzz_one(char **argv) {
 
     struct state_files *st = afl_state + cur_index;
 
-    rel_fls_t *ds[2 * MAX_SIZE_SUIT + 10];
+    rel_files_t *ds[2 * MAX_SIZE_SUIT + 10];
     u32 ds_size = 0,
             num_exec_mutations = 0;
 
@@ -6592,7 +6559,7 @@ static u8 fuzz_one(char **argv) {
     if (cur_index != 0) {
 
         replenishment(ds, &ds_size, st->suit, st->suit_size);
-        replenishment(ds, &ds_size, st->favourite, st->favourite_size);
+        replenishment(ds, &ds_size, st->favorit, st->favorit_size);
 
         if (queue_cur->set_rel_fls != NULL)
             replenishment(ds, &ds_size, &queue_cur->set_rel_fls, 1);
@@ -7069,7 +7036,7 @@ static u8 fuzz_one(char **argv) {
 
         for (j = 1; j <= ARITH_MAX; j++) {
 
-            u8 r = orig ^ (orig + j);
+            u8 r = orig ^(orig + j);
 
             /* Do arithmetic operations only if the result couldn't be a product
          of a bitflip. */
@@ -7135,10 +7102,10 @@ static u8 fuzz_one(char **argv) {
 
         for (j = 1; j <= ARITH_MAX; j++) {
 
-            u16 r1 = orig ^ (orig + j),
-                    r2 = orig ^ (orig - j),
-                    r3 = orig ^ SWAP16(SWAP16(orig) + j),
-                    r4 = orig ^ SWAP16(SWAP16(orig) - j);
+            u16 r1 = orig ^(orig + j),
+                    r2 = orig ^(orig - j),
+                    r3 = orig ^SWAP16(SWAP16(orig) + j),
+                    r4 = orig ^SWAP16(SWAP16(orig) - j);
 
             /* Try little endian addition and subtraction bitmap_id. Do it only
          if the operation would affect more than one byte (hence the
@@ -7234,10 +7201,10 @@ static u8 fuzz_one(char **argv) {
 
         for (j = 1; j <= ARITH_MAX; j++) {
 
-            u32 r1 = orig ^ (orig + j),
-                    r2 = orig ^ (orig - j),
-                    r3 = orig ^ SWAP32(SWAP32(orig) + j),
-                    r4 = orig ^ SWAP32(SWAP32(orig) - j);
+            u32 r1 = orig ^(orig + j),
+                    r2 = orig ^(orig - j),
+                    r3 = orig ^SWAP32(SWAP32(orig) + j),
+                    r4 = orig ^SWAP32(SWAP32(orig) - j);
 
             /* Little endian bitmap_id. Same deal as with 16-bit: we only want to
          try if the operation would have effect on more than two bytes. */
@@ -8372,7 +8339,6 @@ static void sync_fuzzers(char **argv) {
                 /* See what happens. We rely on save_if_interesting() to catch major
            errors and save the test case. */
 
-                LOG("mem_buf");
                 write_to_testcase(mem, st.st_size, out_file);
 
                 fault = run_target(argv, exec_tmout);
@@ -8382,7 +8348,7 @@ static void sync_fuzzers(char **argv) {
                 syncing_party = sd_ent->d_name;
 
                 if (!cur_index) {
-                    rel_fls_t *c = NULL;
+                    rel_files_t *c = NULL;
                     queued_imported += save_if_interesting(argv, mem, st.st_size, c, fault);
                 }
                 syncing_party = 0;
@@ -9149,8 +9115,6 @@ static void fix_up_sync(void) {
 
     x = alloc_printf("%s/%s", out_dir, sync_id);
 
-    ck_free(sync_dir);
-
     sync_dir = out_dir;
     out_dir = x;
 
@@ -9348,7 +9312,7 @@ static char **get_qemu_argv(u8 *own_loc, char **argv, int argc) {
     if (!access(BIN_PATH "/afl-qemu-trace", X_OK)) {
 
         target_path = new_argv[0] = ck_strdup(BIN_PATH
-                                                      "/afl-qemu-trace");
+                                              "/afl-qemu-trace");
         return new_argv;
 
     }
@@ -9400,7 +9364,7 @@ static void save_cmdline(u32 argc, char **argv) {
 
 void log_in_file() {
     u8 *fn = alloc_printf("%s/log", out_dir);
-    log_fd = open(fn, O_CREAT | O_WRONLY, 0666);
+    log_fd = open(fn, O_CREAT | O_WRONLY);
     if (log_fd < 0) WARNF("The log does not open fn - %s", fn);
     else dup2(log_fd, STDERR_FILENO);
     ck_free(fn);
@@ -9631,13 +9595,11 @@ int main(int argc, char **argv) {
 
                 if (mode) FATAL("Multiple -c options not supported");
                 mode = optarg;
-                type_mode = MIN_COV;
+                type_mode = ENTROPY;
                 if (!strcmp(mode, "min_cov")) type_mode = MIN_COV;
-                else if (!strcmp(mode, "max_cov")) type_mode = MAX_COV;
-                else if (!strcmp(mode, "rand_cov")) type_mode = RAND_COV;
-                else if (!strcmp(mode, "entropy")) type_mode = ENTROPY;
-                else
-                    FATAL("Mode not found.\nYou can use min_cov, max_cov, rand_cov or entropy");
+                if (!strcmp(mode, "max_cov")) type_mode = MAX_COV;
+                if (!strcmp(mode, "rand_cov")) type_mode = RAND_COV;
+                if (!strcmp(mode, "entropy")) type_mode = ENTROPY;
 
                 ACTF("I use mode %s %d", mode, type_mode);
                 break;
@@ -9647,8 +9609,6 @@ int main(int argc, char **argv) {
                 usage(argv[0]);
 
         }
-
-    top_rated = ck_alloc(sizeof(struct queue_entry *) * MAP_SIZE);
 
     if (optind == argc || !in_dir || !out_dir) usage(argv[0]);
 
@@ -9721,9 +9681,12 @@ int main(int argc, char **argv) {
 
     if (!out_file) setup_stdio_file();
 
-    setStateFl(afl_state);
+    if (out_file)
+        out_fns[0] = ck_strdup(out_file);
+    else
+        out_fns[0] = 0;
 
-    out_fns[0] = out_file ? ck_strdup(out_file) : NULL;
+    afl_state[0].out_dir = out_dir;
 
     check_binary(argv[optind]);
 
@@ -9759,7 +9722,7 @@ int main(int argc, char **argv) {
         PFATAL("fork() failed");
 
     if (!opensnoop_pid) {
-        u8 *program_name, *opensnoop;
+        u8 *program_name, *afl_path, *opensnoop;
 
         opensnoop = "/usr/share/bcc/tools/opensnoop";
 
@@ -9772,9 +9735,6 @@ int main(int argc, char **argv) {
         exit(1);
     } else
         LOG("Opensnoop_pid %d", opensnoop_pid);
-
-    sleep(1);
-    start_time += 1000;
 
     cull_queue();
 
@@ -9800,7 +9760,6 @@ int main(int argc, char **argv) {
         u8 skipped_fuzz;
 
 #ifdef ENTROPY_EVALUATION
-
         struct queue_entry *qq = queue_cur;
         if (!queue_cur)
             qq = queue;
@@ -9873,8 +9832,8 @@ int main(int argc, char **argv) {
         cur_st->prev_skip = skipped_fuzz = fuzz_one(use_argv);
 
         if (!cur_st->prev_skip)
-            favorit_sets_rel_fls(cur_st->favourite, &cur_st->favourite_size,
-                                 cur_st->suit, cur_st->favourite_size);
+            favorit_sets_rel_fls(cur_st->favorit, &cur_st->favorit_size,
+                                 cur_st->suit, cur_st->favorit_size);
 
         if (!stop_soon && sync_id && !skipped_fuzz) {
 
@@ -9955,25 +9914,14 @@ int main(int argc, char **argv) {
     }
 
     fclose(plot_file);
-
-#ifdef ENTROPY_EVALUATION
-    entropy_destroy(entropy_evl);
-#endif
-
-    for (u32 j = 0; j < out_fns_size; j++) {
-        destroy_state(afl_state + j);
-        ck_free(out_fns[j]);
+    destroy_queue(queue);
+    for (u32 j = 1; j < out_fns_size; j++) {
+        destroy_queue(afl_state[j].queue);
+        free(afl_state[j].top_rated);
 
         LOG("Free memory for %d", j);
     }
 
-    destroy_ignore_fl(ignore_fls);
-
-    // Можно убрать
-    ck_free(ignore);
-    ck_free(orig_cmdline);
-
-    //
     destroy_extras();
 
     close(paths_fd);
